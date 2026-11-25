@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .yamlio import load_yaml
 
@@ -113,6 +113,56 @@ class GroupSpec(BaseModel):
         return v
 
 
+class PatchSpec(BaseModel):
+    """One change a scenario makes. Exactly one target: an entity param, a link
+    field, or a group's mode. With ``at`` it happens during the run (a fault
+    injection); without it, before the run starts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    at: float | None = None
+    entity: str | None = None
+    param: str | None = None
+    link: str | None = None  # connection key: id, or "from->to"
+    field: Literal["latency", "bandwidth", "loss", "ordered", "up"] | None = None
+    group: str | None = None
+    mode: Literal["expanded", "abstract"] | None = None
+    value: Any = None
+
+    @model_validator(mode="after")
+    def _one_target(self) -> PatchSpec:
+        targets = [t for t in ("entity", "link", "group") if getattr(self, t)]
+        if len(targets) != 1:
+            raise ValueError("a patch needs exactly one of entity, link or group")
+        needs = {"entity": "param", "link": "field", "group": "mode"}[targets[0]]
+        if getattr(self, needs) is None:
+            raise ValueError(f"a {targets[0]} patch needs '{needs}'")
+        if self.group and self.at is not None:
+            raise ValueError("a group's mode can only change before the run (no 'at')")
+        if self.at is not None and self.at < 0:
+            raise ValueError("'at' must be >= 0")
+        return self
+
+    def describe(self) -> str:
+        when = f"at t={self.at:g}: " if self.at is not None else ""
+        if self.entity:
+            return f"{when}{self.entity}.{self.param} = {self.value!r}"
+        if self.link:
+            return f"{when}link {self.link} {self.field} = {self.value!r}"
+        return f"group {self.group} -> {self.mode}"
+
+
+class ScenarioSpec(BaseModel):
+    """A named what-if: the base model plus patches."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str | None = None
+    description: str = ""
+    patches: list[PatchSpec] = Field(default_factory=list)
+
+
 class ModelSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -121,12 +171,19 @@ class ModelSpec(BaseModel):
     entities: list[EntitySpec] = Field(default_factory=list)
     connections: list[ConnectionSpec] = Field(default_factory=list)
     groups: list[GroupSpec] = Field(default_factory=list)
+    scenarios: list[ScenarioSpec] = Field(default_factory=list)
 
     def entity(self, entity_id: str) -> EntitySpec:
         for e in self.entities:
             if e.id == entity_id:
                 return e
         raise KeyError(entity_id)
+
+    def scenario(self, scenario_id: str) -> ScenarioSpec:
+        for s in self.scenarios:
+            if s.id == scenario_id:
+                return s
+        raise KeyError(scenario_id)
 
 
 def load_model(path: str | Path) -> ModelSpec:

@@ -2,6 +2,7 @@
 import { api, RunClient } from "./api.js";
 import { Editor, NODE_H, NODE_W, fmt, linkKey, splitRef } from "./canvas.js";
 import { loadIconFont } from "./icons.js";
+import { Results } from "./results.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -102,6 +103,7 @@ const app = {
 };
 
 const editor = new Editor($("canvas"), app);
+const results = new Results($("results"));
 const run = new RunClient();
 
 // --- model edits and validation --------------------------------------------------
@@ -237,6 +239,7 @@ function setModel(model, path) {
   model.entities ??= [];
   model.connections ??= [];
   model.groups ??= [];
+  model.scenarios ??= [];
   for (const e of model.entities) e.params ??= {};
   layout(model);
   state.model = model;
@@ -559,6 +562,78 @@ function inspectModel(root) {
   root.append(el("h2", {}, "Run summary"));
   root.append(el("div", { id: "metrics" }));
   renderMetrics();
+  root.append(scenariosPanel());
+}
+
+// --- scenarios: what-if variants of the model -------------------------------------
+
+function scenariosPanel() {
+  const box = el("div");
+  box.append(el("h2", {}, "Scenarios"));
+  const list = state.model.scenarios || [];
+  if (!list.length) box.append(el("p", { class: "sub" }, "None yet. Add one as JSON below."));
+  for (const sc of list) {
+    const item = el("div", { class: "scenario" });
+    item.append(el("div", { class: "k" }, sc.name ? `${sc.id} · ${sc.name}` : sc.id));
+    for (const p of sc.patches || []) item.append(el("div", { class: "d" }, describePatch(p)));
+    box.append(item);
+  }
+  box.append(paramField(state.model, "scenarios", {
+    type: "object", default: [], help: "patches: {entity, param, value} · {link, field, value} · {group, mode}; add at: t to time one",
+  }));
+  box.append(batchControls(list), whatifControls(list));
+  return box;
+}
+
+function describePatch(p) {
+  const when = p.at !== undefined && p.at !== null ? `at t=${p.at}: ` : "";
+  if (p.entity) return `${when}${p.entity}.${p.param} = ${JSON.stringify(p.value)}`;
+  if (p.link) return `${when}link ${p.link} ${p.field} = ${JSON.stringify(p.value)}`;
+  return `group ${p.group} → ${p.mode}`;
+}
+
+function batchControls(list) {
+  const box = el("div", { class: "batch" });
+  const opts = { seeds: 5, until: 1000 };
+  box.append(el("h2", {}, "Compare over seeds"));
+  box.append(paramField(opts, "seeds", { type: "int", default: 5, help: "runs per scenario" }, { silent: true }));
+  box.append(paramField(opts, "until", { type: "float", default: 1000, help: "simulated time per run" }, { silent: true }));
+  const go = button("fa-layer-group", `Run baseline + ${list.length} scenario${list.length === 1 ? "" : "s"}`, async () => {
+    try {
+      const scenarios = ["baseline", ...list.map((s) => s.id)];
+      const res = await api.startBatch({ model: state.model, scenarios, seeds: opts.seeds ?? 5, until: opts.until ?? 1000 });
+      results.show(res.id);
+    } catch (e) {
+      showBanner(e.message);
+    }
+  });
+  const actions = el("div", { class: "row-actions" });
+  actions.append(go);
+  box.append(actions);
+  return box;
+}
+
+function whatifControls(list) {
+  const box = el("div");
+  box.append(el("h2", {}, "What if, from here"));
+  if (!list.length) return box;
+  box.append(el("p", { class: "sub" }, "Pause a run, then fork it: the same state and random numbers, with and without the scenario."));
+  const f = el("div", { class: "field" });
+  f.append(el("label", {}, "scenario"));
+  const pick = el("select");
+  for (const sc of list) pick.append(el("option", { value: sc.id }, sc.name || sc.id));
+  f.append(pick);
+  const opts = { horizon: 100 };
+  box.append(f, paramField(opts, "horizon", { type: "float", default: 100, help: "how far to run both forks" }, { silent: true }));
+  const go = button("fa-code-fork", "Fork and compare", () => {
+    if (!state.runLoaded || state.runStale) return showBanner("Start (and pause) a run of the current model first.");
+    run.whatif(pick.value, opts.horizon ?? 100);
+    showBanner(`What-if ${pick.value}: running both forks…`, "info");
+  });
+  const actions = el("div", { class: "row-actions" });
+  actions.append(go);
+  box.append(actions);
+  return box;
 }
 
 function inspectEntity(root, e) {
@@ -629,8 +704,8 @@ function textField(label, value, onChange, { silent = false } = {}) {
   return f;
 }
 
-// Params that change an entity's ports: editing them redraws the inspector too.
-const PORT_PARAMS = new Set(["routes", "machine", "error_port"]);
+// Fields whose edits change what the inspector shows (ports, scenario list): redraw it.
+const PORT_PARAMS = new Set(["routes", "machine", "error_port", "scenarios"]);
 
 // Edit obj[name] according to its schema entry. One builder per field type;
 // anything without its own builder is edited as JSON.
@@ -856,6 +931,7 @@ run.addEventListener("frame", (ev) => {
     renderMetrics();
   }
 });
+run.addEventListener("whatif", (ev) => results.show(ev.detail.batch));
 run.addEventListener("loaded", (ev) => {
   state.ports = ev.detail.ports;
 });

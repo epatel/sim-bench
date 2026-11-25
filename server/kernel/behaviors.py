@@ -46,6 +46,10 @@ class Behavior:
     def summary_extra(self) -> dict[str, Any]:
         return {}
 
+    def on_params_changed(self, names: set[str]) -> None:
+        """Params were patched mid-run. Most behaviors read params on each event and
+        need nothing; ones that cache a param at start must refresh it here."""
+
 
 class Source(Behavior):
     kind = "source"
@@ -134,6 +138,15 @@ class Server(Behavior):
             self.ctx.counter("dropped").add()
             self.ctx.drop(msg, "queue full")
 
+    def on_params_changed(self, names: set[str]) -> None:
+        p = self.ctx.params
+        self.servers = int(p.get("servers", 1))
+        self.capacity = p.get("queue_capacity")
+        while self.queue and self.busy < self.servers:  # more servers: start waiting jobs
+            nxt, t = self.queue.popleft()
+            self.ctx.gauge("queue").set(len(self.queue), self.ctx.now)
+            self._begin(nxt, t)
+
     def _begin(self, msg, enqueued_at: float) -> None:
         now = self.ctx.now
         self.busy += 1
@@ -221,11 +234,19 @@ class Router(Behavior):
         return ["in"], list(params.get("routes", {"out": 1}))
 
     def on_start(self) -> None:
+        self.next = 0
+        self._read_routes()
+
+    def _read_routes(self) -> None:
         routes = self.ctx.params.get("routes", {"out": 1})
+        if getattr(self, "names", None) not in (None, list(routes)):
+            raise ValueError("a router's route names (its ports) cannot change mid-run")
         self.names = list(routes)
         self.weights = [float(w) for w in routes.values()]
         self.mode = self.ctx.params.get("mode", "random")
-        self.next = 0
+
+    def on_params_changed(self, names: set[str]) -> None:
+        self._read_routes()
 
     def on_message(self, port, msg):
         if self.mode == "round_robin":

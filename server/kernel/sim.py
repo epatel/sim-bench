@@ -19,7 +19,7 @@ from .behaviors import Behavior
 from .composite import CompositeError, GroupProbe, flatten
 from .library import Library, LibraryError
 from .metrics import Counter, Gauge, Samples
-from .model import ConnectionSpec, EntitySpec, ModelSpec
+from .model import ConnectionSpec, EntitySpec, ModelSpec, PatchSpec
 from .rng import RngPool, sample
 
 Listener = Callable[[dict[str, Any]], None]
@@ -190,6 +190,7 @@ class Simulation:
         # Boundary probes for expanded groups (kept on the sim so snapshots carry them).
         self.probes: dict[str, GroupProbe] = {}
         self._probe_in = self._attach_probes(boundary.inputs)
+        self.patches_applied: list[dict[str, Any]] = []
         self._probe_out = self._attach_probes(boundary.outputs)
 
     def _add_entity(self, spec: EntitySpec) -> None:
@@ -225,6 +226,36 @@ class Simulation:
                 self.probes[gid] = GroupProbe(gid, self.rngs.stream(f"probe:{gid}"), 0.0)
             table.setdefault(inner, []).append(self.probes[gid])
         return table
+
+    # --- scenario patches during a run ----------------------------------------
+
+    def check_patch(self, patch: PatchSpec) -> None:
+        """Raise ModelError unless ``patch`` can be applied to this running sim."""
+        if patch.group:
+            raise ModelError("a group's mode cannot change during a run")
+        if patch.entity and patch.entity not in self.entities:
+            raise ModelError(
+                f"patch: no running entity {patch.entity!r} (inside an abstract group?)"
+            )
+        if patch.link and patch.link not in self.links:
+            raise ModelError(f"patch: no link {patch.link!r}")
+
+    def schedule_patch(self, time: float, patch: PatchSpec) -> None:
+        self.check_patch(patch)
+        self.schedule(time, "patch", "", "", patch)
+
+    def apply_patch(self, patch: PatchSpec) -> None:
+        """Change an entity param or a link field now (a timed scenario patch)."""
+        self.check_patch(patch)
+        if patch.entity:
+            behavior = self.entities[patch.entity]
+            behavior.ctx.params[patch.param] = copy.deepcopy(patch.value)
+            behavior.on_params_changed({patch.param})
+        else:
+            link = self.links[patch.link]
+            link.spec = link.spec.model_copy(update={patch.field: patch.value})
+        self.patches_applied.append({"t": self.now, "patch": patch.describe()})
+        self.emit({"type": "patch", "t": self.now, "patch": patch.describe()})
 
     def message_gone(self, msg: Message) -> None:
         """A message was dropped, lost or unrouted: close it in any probe that holds it."""
@@ -291,6 +322,9 @@ class Simulation:
         ev = heapq.heappop(self._queue)
         self.now = ev.time
         self.events_processed += 1
+        if ev.kind == "patch":
+            self.apply_patch(ev.data)
+            return ev
         target = self.entities[ev.entity]
         if ev.kind == "deliver":
             if ev.link:
@@ -358,6 +392,7 @@ class Simulation:
             "entities": entities,
             "links": links,
             "groups": {gid: p.summary(self.now) for gid, p in self.probes.items()},
+            "patches": list(self.patches_applied),
         }
 
     # --- snapshot / fork --------------------------------------------------

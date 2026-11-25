@@ -21,6 +21,9 @@ export const api = {
   saveModel: (path, model) => request("PUT", `/api/models/${path}`, model),
   validate: (model) => request("POST", "/api/validate", model),
   calibrate: (model, group, until, seed) => request("POST", "/api/calibrate", { model, group, until, seed }),
+  startBatch: (body) => request("POST", "/api/batches", body),
+  batches: () => request("GET", "/api/batches"),
+  batch: (id, metric) => request("GET", `/api/batches/${id}${metric ? `?metric=${encodeURIComponent(metric)}` : ""}`),
 };
 
 // One live simulation on the server. Emits "loaded", "frame", "error", "closed".
@@ -59,4 +62,5 @@ export class RunClient extends EventTarget {
   step() { this.send({ cmd: "step" }); }
   reset() { this.send({ cmd: "reset" }); }
   speed(value) { this.send({ cmd: "speed", value }); }
+  whatif(scenario, horizon) { this.send({ cmd: "whatif", scenario, horizon }); }
 }

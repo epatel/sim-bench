@@ -37,10 +37,13 @@ from .kernel import (
     Simulation,
     suggest_abstract,
 )
+from .kernel import scenario as scen
 from .kernel.yamlio import load_yaml
+from .storage import RunStore
 
 ROOT = Path(__file__).resolve().parent.parent
 PROJECTS = ROOT / "projects"
+RUNS_DB = ROOT / "runs.sqlite3"
 LIBRARIES = ROOT / "libraries"
 WEB = ROOT / "web"
 
@@ -253,6 +256,106 @@ def calibrate(body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# --- scenarios and batch runs (M6) ---------------------------------------------
+
+BATCH_MAX_RUNS = 200
+RUN_MAX_EVENTS = 2_000_000
+_store: RunStore | None = None
+_tasks: set[asyncio.Task] = set()  # keep background batches referenced
+
+
+def store() -> RunStore:
+    global _store
+    if _store is None or _store.path != RUNS_DB:
+        _store = RunStore(RUNS_DB)
+    return _store
+
+
+def _seed_list(seeds: Any) -> list[int]:
+    if isinstance(seeds, int):
+        return list(range(1, seeds + 1))
+    return [int(s) for s in seeds or [1]]
+
+
+@app.post("/api/batches")
+async def start_batch(body: dict[str, Any]) -> dict[str, Any]:
+    """Run baseline and scenarios over several seeds in the background.
+
+    Body: {"model", "scenarios": ["baseline", id, ...], "seeds": n or [..], "until", "samples"}
+    """
+    try:
+        model, _ = check_model(body.get("model"))
+        scenarios = body.get("scenarios") or [scen.BASELINE]
+        for sid in scenarios:
+            scen.scenario_of(model, sid)
+        seeds = _seed_list(body.get("seeds", 5))
+    except ModelError as e:
+        raise HTTPException(422, str(e)) from e
+    if len(scenarios) * len(seeds) > BATCH_MAX_RUNS:
+        raise HTTPException(422, f"at most {BATCH_MAX_RUNS} runs per batch")
+    params = {
+        "scenarios": scenarios,
+        "seeds": seeds,
+        "until": float(body.get("until", 1000.0)),
+        "samples": int(body.get("samples", 40)),
+    }
+    batch_id = store().create_batch("batch", model.model_dump(by_alias=True), params)
+    task = asyncio.create_task(asyncio.to_thread(_run_batch, batch_id, model, params))
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+    return {"id": batch_id, "runs": len(scenarios) * len(seeds)}
+
+
+def _run_batch(batch_id: int, model: ModelSpec, params: dict[str, Any]) -> None:
+    db = store()
+    try:
+        library = load_library()
+        for sid in params["scenarios"]:
+            for seed in params["seeds"]:
+                sim = scen.build(model, sid, seed, library)
+                result = scen.run_one(sim, params["until"], params["samples"], RUN_MAX_EVENTS)
+                db.add_run(batch_id, sid, seed, result)
+        db.finish(batch_id)
+    except Exception as e:  # report any failure on the batch instead of losing it
+        db.finish(batch_id, f"{type(e).__name__}: {e}")
+
+
+@app.get("/api/batches")
+def list_batches() -> list[dict[str, Any]]:
+    return store().batches()
+
+
+@app.get("/api/batches/{batch_id}")
+def get_batch(batch_id: int, metric: str | None = None) -> dict[str, Any]:
+    """A batch with per-scenario stats for every metric, and one metric's time series."""
+    b = store().batch(batch_id)
+    if b is None:
+        raise HTTPException(404, f"no batch {batch_id}")
+    runs = b.pop("runs_detail")
+    by_scenario = _group_runs(runs)
+    b["aggregate"] = {
+        sid: scen.aggregate([r["flat"] for r in rs]) for sid, rs in by_scenario.items()
+    }
+    b["metrics"] = sorted({p for r in runs for p in r["flat"]})
+    b["truncated"] = any(r["truncated"] for r in runs)
+    if metric:
+        b["series"] = _series(by_scenario, metric)
+    return b
+
+
+def _group_runs(runs: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    out: dict[str, list[dict[str, Any]]] = {}
+    for r in runs:
+        out.setdefault(r["scenario"], []).append(r)
+    return out
+
+
+def _series(by_scenario: dict[str, list[dict[str, Any]]], metric: str) -> dict[str, list]:
+    return {
+        sid: scen.mean_series([r["series"] for r in rs], metric) for sid, rs in by_scenario.items()
+    }
+
+
 # --- live runs ----------------------------------------------------------------
 
 FPS = 30
@@ -302,41 +405,75 @@ class RunSession:
     async def handle(self, msg: dict[str, Any]) -> None:
         cmd = msg.get("cmd")
         if cmd == "load":
-            try:
-                self.library = load_library()  # the run keeps the types it was loaded with
-                self.model, sim = check_model(msg.get("model"), self.library)
-            except ModelError as e:
-                await self.ws.send_json({"type": "error", "message": str(e)})
-                return
-            except HTTPException as e:
-                await self.ws.send_json({"type": "error", "message": e.detail})
-                return
-            self.seed = int(msg.get("seed", 0))
-            self._build()
-            ports = {k: {"inputs": i, "outputs": o} for k, (i, o) in sim.ports.items()}
-            await self.ws.send_json({"type": "loaded", "ports": ports})
-            await self.send_frame(summary=True)
-            return
+            return await self.load(msg)
         if cmd == "speed":  # a setting, valid before any model is loaded
             self.speed = max(1e-6, float(msg.get("value", 1.0)))
             return
         if self.sim is None:
-            await self.ws.send_json({"type": "error", "message": "load a model first"})
+            return await self.error("load a model first")
+        handler = {
+            "play": self.play,
+            "pause": self.pause,
+            "step": self.step,
+            "reset": self.reset,
+            "whatif": self.whatif,
+        }.get(cmd)
+        if handler is None:
+            return await self.error(f"unknown cmd {cmd!r}")
+        await handler(msg)
+
+    async def error(self, message: str) -> None:
+        await self.ws.send_json({"type": "error", "message": message})
+
+    async def load(self, msg: dict[str, Any]) -> None:
+        try:
+            self.library = load_library()  # the run keeps the types it was loaded with
+            self.model, sim = check_model(msg.get("model"), self.library)
+        except ModelError as e:
+            return await self.error(str(e))
+        except HTTPException as e:
+            return await self.error(e.detail)
+        self.seed = int(msg.get("seed", 0))
+        self._build()
+        ports = {k: {"inputs": i, "outputs": o} for k, (i, o) in sim.ports.items()}
+        await self.ws.send_json({"type": "loaded", "ports": ports})
+        await self.send_frame(summary=True)
+
+    async def play(self, msg: dict[str, Any]) -> None:
+        self.playing = True
+
+    async def pause(self, msg: dict[str, Any]) -> None:
+        self.playing = False
+        await self.send_frame(summary=True)
+
+    async def step(self, msg: dict[str, Any]) -> None:
+        self.playing = False
+        self.sim.step()
+        await self.send_frame(summary=True)
+
+    async def reset(self, msg: dict[str, Any]) -> None:
+        self._build()
+        await self.send_frame(summary=True)
+
+    async def whatif(self, msg: dict[str, Any]) -> None:
+        """Fork the paused run: continue it as is and with a scenario, side by side."""
+        self.playing = False
+        try:
+            scenario = scen.scenario_of(self.model, msg.get("scenario"))
+            if scenario is None:
+                raise ModelError("pick a scenario to compare with")
+            horizon = float(msg.get("horizon", 100.0))
+            start = self.sim.now
+            result = await asyncio.to_thread(scen.whatif, self.sim, scenario, horizon)
+        except (ModelError, ValueError) as e:
+            await self.ws.send_json({"type": "error", "message": f"what-if: {e}"})
             return
-        if cmd == "play":
-            self.playing = True
-        elif cmd == "pause":
-            self.playing = False
-            await self.send_frame(summary=True)
-        elif cmd == "step":
-            self.playing = False
-            self.sim.step()
-            await self.send_frame(summary=True)
-        elif cmd == "reset":
-            self._build()
-            await self.send_frame(summary=True)
-        else:
-            await self.ws.send_json({"type": "error", "message": f"unknown cmd {cmd!r}"})
+        params = {"scenarios": [scen.BASELINE, scenario.id], "from": start, "horizon": horizon}
+        batch_id = store().create_batch("whatif", self.model.model_dump(by_alias=True), params)
+        for sid in (scen.BASELINE, scenario.id):
+            store().add_run(batch_id, sid, self.seed, result[sid])
+        store().finish(batch_id)
+        await self.ws.send_json({"type": "whatif", "batch": batch_id})
 
     async def send_frame(self, summary: bool = False, lagging: bool = False) -> None:
         sim = self.sim

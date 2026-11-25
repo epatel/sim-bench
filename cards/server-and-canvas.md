@@ -13,6 +13,7 @@ The FastAPI server (`server/app.py`) and the browser UI (`web/`). Read this befo
 | `GET /api/types` | Behaviors with `icon`, default `inputs`/`outputs`, and `params` (each behavior's `params_schema`) |
 | `GET /api/models` | `*.yaml` under `projects/`, as `{path, name}` |
 | `GET` / `PUT /api/models/{path}` | Load as JSON, or validate and save as YAML. `model_path()` refuses paths outside `projects/` and anything that isn't `.yaml`. |
+| `POST /api/batches`, `GET /api/batches[/{id}]` | Batch runs over scenarios and seeds, and their results (see the scenarios card) |
 | `POST /api/validate` | Returns `{ok, ports}` or `{ok: false, error}`. The UI calls it (debounced) after every edit to learn ports, because router ports depend on params. |
 
 ## WebSocket `/ws/run`
@@ -31,6 +32,8 @@ sequenceDiagram
     S-->>UI: frame {now, records[], summary every 10th}
   end
   UI->>S: pause / step / reset
+  UI->>S: whatif {scenario, horizon}
+  S-->>UI: whatif {batch}
 ```
 
 - `speed` is simulated time per real second. If a frame hits `MAX_EVENTS_PER_FRAME`, the frame says `lagging: true` and the sim falls behind real time instead of freezing the server.

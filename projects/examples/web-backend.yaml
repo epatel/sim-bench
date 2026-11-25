@@ -29,3 +29,21 @@ connections:
   - {from: app1.out, to: db.in, latency: 0.002}
   - {from: app2.out, to: db.in, latency: 0.002}
   - {from: db.out, to: done.in, latency: 0.001, bandwidth: 2000}
+scenarios:
+  - id: db-slow
+    name: Database twice as slow
+    patches:
+      - {entity: db, param: service, value: {dist: exp, mean: 0.04}}
+  - id: peak-load
+    name: 60% more traffic
+    patches:
+      - {entity: clients, param: interarrival, value: {dist: exp, mean: 0.031}}
+  - id: app1-link-down
+    name: Link to app1 fails at t=100
+    patches:
+      - {at: 100, link: "lb.app_a->app1.in", field: up, value: false}
+  - id: scale-up-under-load
+    name: Peak load, app2 gets 8 workers at t=100
+    patches:
+      - {entity: clients, param: interarrival, value: {dist: exp, mean: 0.031}}
+      - {at: 100, entity: app2, param: servers, value: 8}

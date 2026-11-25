@@ -180,7 +180,7 @@ requirements.txt   (.venv, gitignored)
   focus, and the calibration loop.
 - [x] **M5 Behaviors.** Tier-2 state machines with an editor/viewer, and tier-3
   Python scripts with the restricted ctx.
-- [ ] **M6 Scenarios.** Patches, batch runs over seeds, snapshot and fork,
+- [x] **M6 Scenarios.** Patches, batch runs over seeds, snapshot and fork,
   SQLite results, comparison charts.
 - [ ] **M7 Agent.** SDK session, chat panel, MCP model and sim tools, and a
   subscription-only auth check.
@@ -214,6 +214,11 @@ requirements.txt   (.venv, gitignored)
   to the state that set them.
 - 2026-11-25: All YAML is read with YAML 1.2 booleans (`yamlio`), so `on:`
   stays a key.
+- 2026-11-25: Results are SQLite plus flat `{metric path: number}` per run,
+  aggregated when read. There is no fixed metric schema, so new behaviors'
+  metrics appear automatically.
+- 2026-11-25: A what-if fork uses common random numbers: both forks continue
+  from the same snapshot. The baseline fork is the plain continuation.
 - 2026-11-25: code-health uses the global aihealth install
   (`form: existing`) at the user's request. The pin and the install command are
   in `CLAUDE.md`.
@@ -262,8 +267,15 @@ requirements.txt   (.venv, gitignored)
   `queueing/batcher` and `web/token-bucket`, with `projects/examples/resilience.yaml`.
   `server` gained an optional `error` output, and all YAML is now read with
   YAML 1.2 booleans. There are 102 tests.
-- Next: M6. Scenarios (patches, batch runs over seeds, snapshot and fork from
-  the UI, SQLite results, comparison charts).
+- M6 is done. A model has `scenarios:` with patches that apply before the run
+  or at a time `at` (fault injection). Batch runs cover baseline and scenarios
+  over seeds, in a background thread, stored in `runs.sqlite3` with migrations,
+  and summarized as a mean and 95% CI per metric with time series. While a run
+  is paused, "What if, from here" forks it into a baseline and a scenario
+  branch with the same random numbers. The results drawer has a dot+CI chart,
+  a time-series chart, a legend and a table. There are 123 tests.
+- Next: M7. The agent: Claude Agent SDK session, chat panel, and MCP tools for
+  the model, libraries, scenarios and batches.
 
 ## Open questions
 

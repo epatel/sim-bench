@@ -10,12 +10,13 @@ flowchart LR
   API --> Kernel["server/kernel/<br/>discrete-event engine"]
   API --> Store["projects/ models<br/>libraries/ types + templates"]
   API --> Agent["server/agent/ (planned M7)<br/>claude-agent-sdk"]
-  Kernel --> DB[("SQLite run results (planned M6)")]
+  API --> DB[("runs.sqlite3<br/>batches and what-ifs")]
 ```
 
 | Path | Status | Owns |
 |---|---|---|
 | `server/kernel/` | built (M1) | Clock, event queue, RNG streams, tier-1 behaviors, links, metrics, snapshot/fork, headless CLI. |
+| `server/kernel/scenario.py`, `server/storage.py` | built (M6) | Scenario patches, batch runs with confidence intervals, what-if forks; the SQLite results store. |
 | `server/kernel/composite.py` | built (M4) | Groups as composites: `flatten` (abstract stand-ins, boundary rewriting), boundary probes, calibration. |
 | `projects/examples/` | built (M1) | Example models in YAML (`mm1.yaml`, `web-backend.yaml`). |
 | `server/app.py`, `web/` | built (M2) | FastAPI REST for models and types, a WebSocket that streams live runs, and the vanilla-JS canvas editor. Font Awesome is vendored. |
