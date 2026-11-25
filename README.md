@@ -6,6 +6,23 @@
 
 # Simulation Workbench (sim-bench)
 
+## TL;DR
+
+Draw a system (clients, load balancers, servers, queues, caches, databases) on a canvas, and
+a discrete-event simulator runs it live. You can ask "what if": more servers, a slow
+database, a link that goes down. Answers come with confidence intervals. A built-in Claude
+agent can edit the model, or read another project's source code and propose a model of it.
+It runs locally and uses your Claude subscription, not an API key.
+
+```sh
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m server --reload   # open http://127.0.0.1:8765
+```
+
+![The workbench running examples/composites.yaml: a load-balanced app pool and a cached data tier, with messages in flight](docs/screenshot.jpg)
+
+## What it does
+
 A local workbench for **discrete-event simulation**. A Python server simulates entities
 that exchange messages and react to events. You build, run and watch the model on a browser canvas.
 A Claude agent can edit and run the model, and can build models by reading other projects' source code.
@@ -89,3 +106,7 @@ cards/           design notes per domain, read by coding agents (and people)
 
 `project-plan.md` has the architecture, milestones and decisions. `CLAUDE.md` and `cards/`
 are the context for working on this repo with Claude Code.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
