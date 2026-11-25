@@ -56,6 +56,7 @@ MIGRATIONS = [
     "ALTER TABLE note ADD COLUMN created_at TEXT",
 ]
 
+
 def migrate(conn):
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version > len(MIGRATIONS):
@@ -65,9 +66,7 @@ def migrate(conn):
         )
     for i, sql in enumerate(MIGRATIONS[version:], start=version):
         try:
-            conn.executescript(
-                f"BEGIN; {sql}; PRAGMA user_version = {i + 1}; COMMIT;"
-            )
+            conn.executescript(f"BEGIN; {sql}; PRAGMA user_version = {i + 1}; COMMIT;")
         except Exception:
             if conn.in_transaction:
                 conn.rollback()

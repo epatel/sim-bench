@@ -6,7 +6,7 @@ How the workbench is split into parts, and where each part lives. Read this befo
 
 ```mermaid
 flowchart LR
-  Web["web/ (planned M2)<br/>canvas, panels, chat"] <-- REST + WebSocket --> API["server/ API (planned M2)<br/>FastAPI"]
+  Web["web/<br/>canvas, panels"] <-- REST + WebSocket --> API["server/app.py<br/>FastAPI"]
   API --> Kernel["server/kernel/<br/>discrete-event engine"]
   API --> Store["model store (planned M3)<br/>projects/, libraries/"]
   API --> Agent["server/agent/ (planned M7)<br/>claude-agent-sdk"]
@@ -17,7 +17,7 @@ flowchart LR
 |---|---|---|
 | `server/kernel/` | built (M1) | Clock, event queue, RNG streams, tier-1 behaviors, links, metrics, snapshot/fork, headless CLI. |
 | `projects/examples/` | built (M1) | Example models in YAML (`mm1.yaml`, `web-backend.yaml`). |
-| `server/` API, `web/` | planned (M2) | FastAPI REST for models and a WebSocket stream of kernel events to a vanilla-JS canvas. |
+| `server/app.py`, `web/` | built (M2) | FastAPI REST for models and types, a WebSocket that streams live runs, and the vanilla-JS canvas editor. Font Awesome is vendored. |
 | `libraries/` | planned (M3) | Item types and templates as YAML. |
 | `server/agent/` | planned (M7) | Claude Agent SDK session and in-process MCP tools that call the kernel and the model store. |
 
@@ -29,5 +29,5 @@ flowchart LR
 
 ## Tech choices
 
-- Python 3.12 in `.venv`, pydantic v2, PyYAML. pytest and ruff for development.
+- Python 3.12 in `.venv`, pydantic v2, PyYAML, FastAPI and uvicorn. pytest, ruff and httpx for development.
 - No build step for the frontend (decided in `project-plan.md`).

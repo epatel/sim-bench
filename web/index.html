@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simulation Workbench</title>
+  <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <header class="toolbar">
+    <div class="brand"><i class="fa-solid fa-diagram-project"></i> sim-bench</div>
+
+    <div class="group">
+      <select id="model-select" title="Open a model from projects/"></select>
+      <button id="btn-new" title="New empty model"><i class="fa-solid fa-plus"></i></button>
+      <input id="model-path" class="path" spellcheck="false" title="File under projects/ to save to">
+      <button id="btn-save" title="Save model (Ctrl/Cmd+S)"><i class="fa-solid fa-floppy-disk"></i></button>
+    </div>
+
+    <div class="group run">
+      <button id="btn-play" class="primary" title="Play / pause (Space)"><i class="fa-solid fa-play"></i></button>
+      <button id="btn-step" title="Process one event"><i class="fa-solid fa-forward-step"></i></button>
+      <button id="btn-reset" title="Restart the run with the current model"><i class="fa-solid fa-rotate-left"></i></button>
+      <label class="speed" title="Simulated time per real second">
+        <i class="fa-solid fa-gauge-high"></i>
+        <input id="speed" type="range" min="-2" max="3" step="0.05" value="0">
+        <span id="speed-label">1×</span>
+      </label>
+      <label class="seed" title="Random seed">seed <input id="seed" type="number" value="1"></label>
+    </div>
+
+    <div class="clock">
+      <span>t = <b id="sim-time">0</b></span>
+      <span><b id="sim-events">0</b> events</span>
+      <span id="run-status" class="status"></span>
+    </div>
+  </header>
+
+  <main>
+    <aside class="palette">
+      <h2>Item types</h2>
+      <div id="palette"></div>
+      <p class="hint">Drag onto the canvas, or click to add. Drag from an output port (right) to an input port (left) to connect.</p>
+    </aside>
+
+    <section class="stage">
+      <canvas id="canvas" tabindex="0"></canvas>
+      <div id="banner" class="banner hidden"></div>
+      <div class="zoom">
+        <button id="btn-fit" title="Fit model to view"><i class="fa-solid fa-expand"></i></button>
+      </div>
+    </section>
+
+    <aside class="inspector">
+      <div id="inspector"></div>
+    </aside>
+  </main>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

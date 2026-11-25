@@ -230,6 +230,10 @@ class Simulation:
             behavior.on_start()
 
     @property
+    def pending(self) -> int:
+        return len(self._queue)
+
+    @property
     def next_time(self) -> float | None:
         return self._queue[0].time if self._queue else None
 
@@ -287,6 +291,7 @@ class Simulation:
             fn(record)
 
     def summary(self) -> dict[str, Any]:
+        self.start()  # behaviors set up their state (and metrics) in on_start
         entities = {}
         for eid, b in self.entities.items():
             entities[eid] = {"type": b.kind, **b.ctx.metrics.summary(self.now), **b.summary_extra()}

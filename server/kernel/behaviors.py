@@ -21,6 +21,10 @@ class Behavior:
     kind: ClassVar[str] = ""
     description: ClassVar[str] = ""
     icon: ClassVar[str] = "fa-cube"  # Font Awesome icon for the canvas
+    # Parameter metadata for editors: name -> {"type", "default", "help", ...}.
+    # Types: "dist" (distribution spec), "int", "float", "enum" (+ "options"),
+    # "object". "nullable": True means null is allowed (e.g. unbounded).
+    params_schema: ClassVar[dict[str, dict[str, Any]]] = {}
 
     def __init__(self, ctx: Context) -> None:
         self.ctx = ctx
@@ -47,6 +51,18 @@ class Source(Behavior):
     kind = "source"
     description = "Emits messages with a given inter-arrival time distribution."
     icon = "fa-faucet"
+    params_schema = {
+        "interarrival": {"type": "dist", "default": 1.0, "help": "time between messages"},
+        "count": {
+            "type": "int",
+            "default": None,
+            "nullable": True,
+            "help": "stop after this many (empty = forever)",
+        },
+        "start": {"type": "float", "default": 0.0, "help": "time of the first gap"},
+        "size": {"type": "dist", "default": 1.0, "help": "message size (for link bandwidth)"},
+        "payload": {"type": "object", "default": {}, "help": "fields copied into each message"},
+    }
 
     @classmethod
     def ports(cls, params):
@@ -79,6 +95,17 @@ class Server(Behavior):
     kind = "server"
     description = "A queue in front of N parallel servers (G/G/c/K)."
     icon = "fa-server"
+    params_schema = {
+        "servers": {"type": "int", "default": 1, "help": "parallel workers"},
+        "service": {"type": "dist", "default": 1.0, "help": "service time per message"},
+        "queue_capacity": {
+            "type": "int",
+            "default": None,
+            "nullable": True,
+            "help": "max waiting messages (empty = unbounded)",
+        },
+        "error_rate": {"type": "float", "default": 0.0, "help": "probability a job fails"},
+    }
 
     @classmethod
     def ports(cls, params):
@@ -141,6 +168,9 @@ class Delay(Behavior):
     kind = "delay"
     description = "Holds each message for a sampled time, with unlimited concurrency."
     icon = "fa-hourglass-half"
+    params_schema = {
+        "delay": {"type": "dist", "default": 0.0, "help": "hold time per message"},
+    }
 
     @classmethod
     def ports(cls, params):
@@ -157,6 +187,19 @@ class Router(Behavior):
     kind = "router"
     description = "Forwards each message to one output, by weight or round-robin."
     icon = "fa-shuffle"
+    params_schema = {
+        "mode": {
+            "type": "enum",
+            "options": ["random", "round_robin"],
+            "default": "random",
+            "help": "how to pick an output",
+        },
+        "routes": {
+            "type": "object",
+            "default": {"out": 1},
+            "help": "output port name -> weight (defines the outputs)",
+        },
+    }
 
     @classmethod
     def ports(cls, params):

@@ -162,6 +162,13 @@ def test_invalid_models_are_rejected(entities, connections, message):
         Simulation(model(entities, connections))
 
 
+def test_summary_before_any_event():
+    sim = Simulation(load_model(EXAMPLES / "web-backend.yaml"), seed=1)
+    s = sim.summary()
+    assert s["time"] == 0 and s["events"] == 0
+    assert s["entities"]["app1"]["utilization"] == 0
+
+
 def test_step_by_step_matches_run():
     m = load_model(EXAMPLES / "mm1.yaml")
     a, b = Simulation(m, seed=5), Simulation(m, seed=5)

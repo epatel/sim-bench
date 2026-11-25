@@ -1,0 +1,103 @@
+import pytest
+import yaml
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+
+from server import app as app_module
+
+MODEL = {
+    "name": "tiny",
+    "entities": [
+        {"id": "gen", "type": "source", "params": {"interarrival": 1.0, "count": 3}},
+        {"id": "done", "type": "sink"},
+    ],
+    "connections": [{"from": "gen.out", "to": "done.in", "latency": 0.5}],
+}
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    monkeypatch.setattr(app_module, "PROJECTS", tmp_path)
+    (tmp_path / "examples").mkdir()
+    (tmp_path / "examples" / "tiny.yaml").write_text(yaml.safe_dump(MODEL))
+    return TestClient(app_module.app)
+
+
+def test_types_have_ports_and_params(client):
+    types = {t["kind"]: t for t in client.get("/api/types").json()}
+    assert set(types) >= {"source", "server", "delay", "router", "sink"}
+    assert types["server"]["inputs"] == ["in"] and types["server"]["outputs"] == ["out"]
+    assert types["server"]["params"]["service"]["type"] == "dist"
+    assert types["router"]["outputs"] == ["out"]  # from default routes
+
+
+def test_list_and_get_model(client):
+    assert client.get("/api/models").json() == [{"path": "examples/tiny.yaml", "name": "tiny"}]
+    m = client.get("/api/models/examples/tiny.yaml").json()
+    assert m["connections"][0]["from"] == "gen.out"
+
+
+def test_save_round_trips_and_rejects_bad_models(client, tmp_path):
+    r = client.put("/api/models/mine/new.yaml", json=MODEL)
+    assert r.status_code == 200
+    saved = yaml.safe_load((tmp_path / "mine" / "new.yaml").read_text())
+    assert saved["connections"][0] == {"from": "gen.out", "to": "done.in", "latency": 0.5}
+
+    bad = {**MODEL, "connections": [{"from": "gen.nope", "to": "done.in"}]}
+    r = client.put("/api/models/mine/bad.yaml", json=bad)
+    assert r.status_code == 422 and "not an output" in r.json()["detail"]
+
+
+@pytest.mark.parametrize("path", ["../escape.yaml", "x.txt", "a/../../b.yaml", "/etc/x.yaml"])
+def test_model_path_refuses_paths_outside_projects(client, path):
+    with pytest.raises(HTTPException):
+        app_module.model_path(path)
+    # Over HTTP the client normalizes "..", so these never reach the handler at all.
+    assert client.put(f"/api/models/{path}", json=MODEL).status_code >= 400
+
+
+def test_validate_reports_ports_or_error(client):
+    ok = client.post("/api/validate", json=MODEL).json()
+    assert ok["ok"] and ok["ports"]["gen"] == {"inputs": [], "outputs": ["out"]}
+    bad = client.post("/api/validate", json={"entities": [{"id": "a", "type": "zzz"}]}).json()
+    assert not bad["ok"] and "unknown type" in bad["error"]
+
+
+def test_websocket_load_step_and_reset(client):
+    with client.websocket_connect("/ws/run") as ws:
+        ws.send_json({"cmd": "step"})
+        assert ws.receive_json()["type"] == "error"
+
+        ws.send_json({"cmd": "load", "model": MODEL, "seed": 1})
+        loaded = ws.receive_json()
+        assert loaded["type"] == "loaded" and "gen" in loaded["ports"]
+        first = ws.receive_json()
+        assert first["type"] == "frame" and first["now"] == 0 and "summary" in first
+
+        ws.send_json({"cmd": "step"})  # first emit at t=1 -> a send record
+        frame = ws.receive_json()
+        assert frame["now"] == 1.0
+        assert [r["type"] for r in frame["records"]] == ["send"]
+        assert frame["records"][0]["arrive"] == 1.5
+
+        ws.send_json({"cmd": "reset"})
+        assert ws.receive_json()["now"] == 0
+
+
+def test_websocket_play_runs_to_completion(client):
+    with client.websocket_connect("/ws/run") as ws:
+        ws.send_json({"cmd": "load", "model": MODEL, "seed": 1})
+        ws.receive_json(), ws.receive_json()
+        ws.send_json({"cmd": "speed", "value": 1000})
+        ws.send_json({"cmd": "play"})
+        for _ in range(50):
+            frame = ws.receive_json()
+            if not frame["playing"]:
+                break
+        assert frame["summary"]["entities"]["done"]["received"]["value"] == 3
+
+
+def test_index_and_static_files_are_served(client):
+    assert "sim-bench" in client.get("/").text
+    assert client.get("/js/main.js").status_code == 200
+    assert client.get("/vendor/fontawesome/css/all.min.css").status_code == 200

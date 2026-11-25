@@ -171,7 +171,7 @@ requirements.txt   (.venv, gitignored)
   `.claude/agent-setup.json`.
 - [x] **M1 Kernel.** Event queue, clock, seeded RNG, entities, ports, links,
   messages, and tier-1 behaviors. Headless runs from the CLI. Determinism tests.
-- [ ] **M2 Server and canvas MVP.** FastAPI with REST for the model and a
+- [x] **M2 Server and canvas MVP.** FastAPI with REST for the model and a
   WebSocket for run streaming. Canvas to place items with FA icons, connect ports,
   edit parameters, and run, pause or step with animated messages.
 - [ ] **M3 Libraries and templates.** YAML type and library format, inheritance,
@@ -214,8 +214,13 @@ requirements.txt   (.venv, gitignored)
   bandwidth, loss, up/down and ordering, metrics, snapshot/fork, and the CLI
   (`python -m server.kernel`). There are 17 tests, including an M/M/1 check
   against queueing theory. Examples are in `projects/examples/`.
-- Next: M2. Add the FastAPI server, a WebSocket that streams listener records,
-  and the canvas MVP.
+- M2 is done: `server/app.py` serves REST for types, models and validation, plus a
+  `/ws/run` live-run WebSocket. `web/` is the canvas editor: a palette, drag to
+  add, port-to-port connecting, a schema-driven inspector, play/pause/step/reset,
+  a speed control, animated messages, metric badges, and saving to `projects/`.
+  It was verified in Chrome against `web-backend.yaml`. There are 29 tests.
+- Next: M3. Add YAML type libraries and templates, with inheritance and a
+  palette grouped by library.
 
 ## Open questions
 
