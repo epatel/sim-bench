@@ -6,11 +6,13 @@ requires-python = ">=3.12"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# By design: workbench tools are allowed outright; reads are gated by the PreToolUse hook.
+filterwarnings = ["ignore:can_use_tool will not be invoked"]
 
 [tool.ruff]
 line-length = 100
 # Markdown code blocks are documentation (cards/ holds copied, hash-tracked files).
-extend-exclude = ["*.md"]
+extend-exclude = ["*.md", "tests/fixtures"]
 target-version = "py312"
 
 [tool.ruff.lint]

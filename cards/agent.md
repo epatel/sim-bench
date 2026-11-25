@@ -43,4 +43,10 @@ get_model, list_types, add_entity, update_entity, remove_entity, connect, update
 
 ## Testing
 
-`tests/test_agent.py` calls the tool handlers directly and checks the session options, without calling a model. An end-to-end check (a real prompt) was run by hand in M7.
+- `tests/test_agent.py` calls the tool handlers directly and checks the session options, without calling a model.
+- **Recorded conversations** (`server/agent/replay.py`, `record.py`, `tests/test_agent_replay.py`). The SDK talks to the CLI through a `Transport` (JSON messages both ways), and `AgentSession(transport=...)` can swap it out.
+  - `python -m server.agent.record tests/cassettes/NAME.jsonl --prompt ... [--model ...] [--source name=dir]` runs a real conversation (your login, real model) in a sandbox (temp libraries, run store, sources). It writes every message to a cassette, plus the browser events and the final model.
+  - Replay plays back only the CLI's side. The SDK, the tool handlers, the read guard hook and `can_use_tool` all run for real, and every answer must match the recording. The browser events and final model must match too. No CLI, login or network is needed, so it runs in CI.
+  - `tests/fixtures/shop` is a tiny project with a fake `.env`. The `shop-from-source` cassette records the guard denying `.env`, and a test replays it with the guard disabled to prove the replay catches it.
+- Cassettes are scrubbed. Absolute paths become tokens (`{WORKDIR}`, `{SOURCE:name}`, `{HOME}`, plus `_REAL` variants for macOS `/private`), and the account and personal setup keys (`PRIVATE_KEYS`: plugins, commands, memory paths, and so on) and `rate_limit_event` are dropped. Check a new cassette before committing it.
+- **When a cassette goes stale.** A change to tool behavior, tool schemas, the system prompt's effect on our answers, or the SDK's wire protocol makes a replay report mismatches. Re-record with the prompts in the cassette's `meta`. The model's choices will differ, so check the new conversation still exercises what the old one did. Recording uses the SDK's internal `SubprocessCLITransport`, so check `RecordingTransport.subprocess` after SDK upgrades.

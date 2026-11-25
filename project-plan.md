@@ -241,6 +241,10 @@ requirements.txt   (.venv, gitignored)
   mean residence. The `delay` stand-in remains for groups without servers.
 - 2026-11-25: aihealth's Primitive Obsession is turned off in `.aihealth.toml`:
   ids are plain strings across YAML models, the browser and the agent.
+- 2026-11-25: Agent tests replay recorded wire traffic through a custom SDK
+  `Transport` (record locally with the real model, replay in CI). Our side runs
+  for real and must answer as recorded. This is preferred over mocking the SDK's
+  message objects, because the replay also exercises the tool and hook protocol.
 - 2026-11-25: Use the agent through `claude-agent-sdk` on the subscription login,
   with `ANTHROPIC_API_KEY` stripped from its environment.
 
@@ -321,8 +325,15 @@ requirements.txt   (.venv, gitignored)
   has a stand-in kind selector and shows capacity and bottleneck. Verified in
   Chrome on `composites.yaml` (pool: capacity 99.9/s, fitted residence
   0.1201 vs measured 0.1198). There are 168 tests.
-- Candidates for next: nested composites, a refactor to value types for ids,
-  CI, and project-level library pinning.
+- CI is set up: `scripts/check.sh` runs ruff, a JS syntax check, pytest and
+  `aihealth delta` (against the PR base or the previous push).
+  `.github/workflows/ci.yml` calls it. The repo has no remote yet, so the
+  workflow has not run on GitHub.
+- The agent is tested end to end in CI by replaying recorded conversations
+  (`tests/cassettes/`, two of them: scale-and-run, and shop-from-source with a
+  denied `.env` read). No CLI or login is needed. There are 172 tests.
+- Candidates for next: nested composites, project-level library pinning, and
+  a refactor to value types for ids.
 
 ## Open questions
 

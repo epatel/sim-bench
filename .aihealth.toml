@@ -5,3 +5,7 @@
 # that the browser, the agent and the kernel all exchange. Primitive Obsession
 # flags that convention everywhere, so it is turned off.
 primitive_obsession = 0
+
+[scan]
+# A sample project the agent reads in recorded tests; not our code.
+exclude = ["tests/fixtures/*"]

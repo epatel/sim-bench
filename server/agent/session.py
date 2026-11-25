@@ -28,6 +28,7 @@ from claude_agent_sdk import (
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
+    Transport,
     UserMessage,
 )
 
@@ -75,14 +76,18 @@ def strip_api_keys() -> list[str]:
 
 
 Send = Callable[[dict[str, Any]], Awaitable[None]]
+MakeTransport = Callable[[ClaudeAgentOptions], Transport]
 
 
 READ_TOOLS = ["Read", "Grep", "Glob"]
 
 
 class AgentSession:
-    def __init__(self, env: Env, send: Send, workdir: Path) -> None:
+    def __init__(
+        self, env: Env, send: Send, workdir: Path, transport: MakeTransport | None = None
+    ) -> None:
         self.env = env
+        self.transport = transport  # None: the SDK's own CLI subprocess (tests replay one)
         self.send = send
         self.workdir = workdir  # an empty cwd: reads outside the sources need permission
         self.client: ClaudeSDKClient | None = None
@@ -144,7 +149,9 @@ class AgentSession:
             await self.close()  # sources changed: reconnect, resuming the conversation
         if self.client is None:
             self.connected_sources = self.sources()
-            self.client = ClaudeSDKClient(self.options())
+            options = self.options()
+            transport = self.transport(options) if self.transport else None
+            self.client = ClaudeSDKClient(options, transport=transport)
             await self.client.connect()
         await self.client.query(self.env.workspace.take_notes() + text)
         async for message in self.client.receive_response():

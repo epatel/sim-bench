@@ -13,6 +13,8 @@ A local workbench that runs a discrete-event simulation of entities, messages an
 - Headless run: `.venv/bin/python -m server.kernel projects/examples/web-backend.yaml --until 300 --seed 1`
 - Test: `.venv/bin/pytest -q`
 - Lint: `.venv/bin/ruff check . && .venv/bin/ruff format --check .`
+- Record an agent test (real model, your login): `.venv/bin/python -m server.agent.record tests/cassettes/NAME.jsonl --prompt "..." [--model projects/examples/X.yaml] [--source name=tests/fixtures/DIR]`. The tests replay it offline. See the agent card.
+- All CI checks: `scripts/check.sh [BASE_REV]` (ruff, JS syntax, pytest, and `aihealth delta` against BASE_REV when given). `.github/workflows/ci.yml` runs it on pushes to main and on pull requests. Add new checks to the script, not the workflow.
 
 ## Cards
 
