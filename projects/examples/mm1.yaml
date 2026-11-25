@@ -1,0 +1,20 @@
+name: mm1
+description: Classic M/M/1 queue. Arrival rate 0.8, service rate 1.0, so mean time in system is 1/(1.0-0.8) = 5.
+entities:
+  - id: gen
+    type: source
+    params:
+      interarrival: {dist: exp, mean: 1.25}
+    pos: [100, 200]
+  - id: srv
+    type: server
+    params:
+      service: {dist: exp, mean: 1.0}
+      servers: 1
+    pos: [300, 200]
+  - id: done
+    type: sink
+    pos: [500, 200]
+connections:
+  - {from: gen.out, to: srv.in}
+  - {from: srv.out, to: done.in}

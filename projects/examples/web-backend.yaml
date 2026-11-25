@@ -1,0 +1,31 @@
+name: web-backend
+description: Clients -> load balancer -> two app servers -> database, with network latency and a lossy link.
+entities:
+  - id: clients
+    type: source
+    params:
+      interarrival: {dist: exp, mean: 0.05}
+      size: {dist: uniform, low: 1, high: 4}
+  - id: lb
+    type: router
+    params:
+      mode: round_robin
+      routes: {app_a: 1, app_b: 1}
+  - id: app1
+    type: server
+    params: {servers: 4, service: {dist: lognormal, mean: 0.12, std: 0.05}, queue_capacity: 50}
+  - id: app2
+    type: server
+    params: {servers: 4, service: {dist: lognormal, mean: 0.12, std: 0.05}, queue_capacity: 50, error_rate: 0.01}
+  - id: db
+    type: server
+    params: {servers: 8, service: {dist: exp, mean: 0.02}}
+  - id: done
+    type: sink
+connections:
+  - {from: clients.out, to: lb.in, latency: {dist: normal, mean: 0.03, std: 0.01}, loss: 0.001}
+  - {from: lb.app_a, to: app1.in, latency: 0.001}
+  - {from: lb.app_b, to: app2.in, latency: 0.001}
+  - {from: app1.out, to: db.in, latency: 0.002}
+  - {from: app2.out, to: db.in, latency: 0.002}
+  - {from: db.out, to: done.in, latency: 0.001, bandwidth: 2000}

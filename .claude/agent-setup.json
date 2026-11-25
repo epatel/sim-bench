@@ -1,0 +1,18 @@
+{
+  "source": "https://ai.memention.net/setup",
+  "version": "2026-11-22.2",
+  "updated": "2026-11-25",
+  "applied": ["project-plan", "context-cards", "standing-defaults", "hooks-over-prose"],
+  "declined": [],
+  "copied": {
+    "cards/standing-defaults.md": {
+      "pattern": "standing-defaults",
+      "sha256": "74a8265d10ffc9dc9c67df5d8bc3a97cfba86551f77837b8af5bbbc22f1fe571"
+    }
+  },
+  "tools": {
+    "ruff": {"pattern": "hooks-over-prose", "min": "0.6", "form": "project-venv"},
+    "pytest": {"pattern": "hooks-over-prose", "min": "8", "form": "project-venv"},
+    "python3": {"pattern": "hooks-over-prose", "min": "3.12", "form": "existing"}
+  }
+}
