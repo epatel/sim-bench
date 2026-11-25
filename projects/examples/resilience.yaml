@@ -1,0 +1,21 @@
+name: resilience
+description: A rate limiter (Python behavior) and a circuit breaker (state machine) in front of a flaky backend. The backend's errors feed the breaker; watch it open, probe and close.
+entities:
+  - {id: users, type: web/client, pos: [0, 160], params: {interarrival: {dist: exp, mean: 0.04}}}
+  - {id: limiter, type: web/token-bucket, pos: [200, 160], params: {rate: 20, burst: 30}}
+  - {id: breaker, type: web/circuit-breaker, pos: [420, 160], params: {threshold: 8, cooldown: 3.0}}
+  - id: backend
+    type: web/app-server
+    pos: [640, 160]
+    params: {servers: 4, error_rate: 0.15, error_port: true}
+  - {id: done, type: web/response, pos: [880, 120]}
+  - {id: throttled, type: sink, pos: [420, 320]}
+  - {id: shed, type: sink, pos: [640, 320]}
+connections:
+  - {from: users.out, to: limiter.in}
+  - {from: limiter.out, to: breaker.in}
+  - {from: limiter.rejected, to: throttled.in}
+  - {from: breaker.out, to: backend.in, latency: 0.002}
+  - {from: breaker.rejected, to: shed.in}
+  - {from: backend.out, to: done.in, latency: 0.002}
+  - {from: backend.error, to: breaker.failure, latency: 0.002}

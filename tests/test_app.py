@@ -213,3 +213,21 @@ def test_saved_model_keeps_groups(client, tmp_path):
     again = client.get("/api/models/g.yaml").json()
     assert again["groups"][0]["mode"] == "abstract"
     assert again["groups"][0]["abstract"]["params"] == {"delay": 1}
+
+
+def test_types_expose_machine_and_python_behavior_params(client):
+    types = {t["kind"]: t for t in client.get("/api/types").json()}
+    cb = types["web/circuit-breaker"]
+    assert cb["base"] == "machine" and cb["inputs"] == ["in", "failure"]
+    assert cb["params"]["threshold"] == {"type": "int", "default": 5}
+    assert cb["params"]["machine"]["type"] == "object"
+    tb = types["web/token-bucket"]
+    assert tb["library"] == "web" and tb["outputs"] == ["out", "rejected"]
+    assert tb["params"]["rate"]["default"] == 10.0
+
+
+def test_speed_can_be_set_before_loading(client):
+    with client.websocket_connect("/ws/run") as ws:
+        ws.send_json({"cmd": "speed", "value": 5})
+        ws.send_json({"cmd": "load", "model": MODEL, "seed": 1})
+        assert ws.receive_json()["type"] == "loaded"  # no error came first

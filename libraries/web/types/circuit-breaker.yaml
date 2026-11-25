@@ -1,0 +1,33 @@
+name: circuit-breaker
+extends: machine
+description: Stops sending to a failing backend for a cooldown, then lets one request probe it. Wire the backend's error output to 'failure'.
+icon: fa-plug-circle-xmark
+params:
+  threshold: 5     # failures within one window that open the breaker
+  window: 10.0     # how often the failure count resets while closed
+  cooldown: 5.0    # how long to stay open before probing
+machine:
+  inputs: [in, failure]
+  outputs: [out, rejected]
+  vars: {failures: 0}
+  initial: closed
+  on:
+    failure: []                      # failure reports are absorbed in any state
+  states:
+    closed:
+      enter: [{set: {failures: 0}}, {after: window, event: tick}]
+      on:
+        in: [{send: out}]
+        tick: [{set: {failures: 0}}, {after: window, event: tick}]
+        failure:
+          - {set: {failures: "failures + 1"}}
+          - {if: "failures >= threshold", then: [{goto: open}]}
+    open:
+      enter: [{count: opened}, {after: cooldown, event: probe}]
+      on:
+        in: [{send: rejected}]
+        probe: [{goto: half_open}]
+    half_open:
+      on:
+        in: [{send: out}, {goto: closed}]
+        failure: [{goto: open}]

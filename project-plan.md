@@ -178,7 +178,7 @@ requirements.txt   (.venv, gitignored)
   palette UI, templates turned into composites, save and load projects.
 - [x] **M4 Resolution.** Composites, abstract or expanded modes, drill-down UI,
   focus, and the calibration loop.
-- [ ] **M5 Behaviors.** Tier-2 state machines with an editor/viewer, and tier-3
+- [x] **M5 Behaviors.** Tier-2 state machines with an editor/viewer, and tier-3
   Python scripts with the restricted ctx.
 - [ ] **M6 Scenarios.** Patches, batch runs over seeds, snapshot and fork,
   SQLite results, comparison charts.
@@ -208,6 +208,12 @@ requirements.txt   (.venv, gitignored)
   (delay plus loss) fitted at one load. This keeps `flatten` simple. Revisit
   nesting once tier-2 behaviors exist, because they could provide
   load-dependent stand-ins.
+- 2026-11-25: Custom logic is split into two tiers. State machines are data
+  (safe in models, the UI and agent output). Python behaviors are trusted repo
+  files, never inline in models, and edits to them need approval. Timers belong
+  to the state that set them.
+- 2026-11-25: All YAML is read with YAML 1.2 booleans (`yamlio`), so `on:`
+  stays a key.
 - 2026-11-25: code-health uses the global aihealth install
   (`form: existing`) at the user's request. The pin and the install command are
   in `CLAUDE.md`.
@@ -248,7 +254,16 @@ requirements.txt   (.venv, gitignored)
 - The code-health pattern is applied. aihealth 0.4.0 (global install) runs as a
   post-edit and stop hook and as an MCP server. The baseline score was 7.94, and
   the M4 changes leave every existing file healthier than before.
-- Next: M5. Tier-2 declarative state machines and tier-3 Python behaviors.
+- M5 is done. The `machine` behavior is a declarative state machine with
+  states, enter/exit actions, timers scoped to their state, variables, a
+  restricted expression language (`expr.py`), and list variables for batching.
+  Python behaviors are loaded from `libraries/<lib>/behaviors/*.py`, and edits
+  to those files need approval. The shipped examples are `web/circuit-breaker`,
+  `queueing/batcher` and `web/token-bucket`, with `projects/examples/resilience.yaml`.
+  `server` gained an optional `error` output, and all YAML is now read with
+  YAML 1.2 booleans. There are 102 tests.
+- Next: M6. Scenarios (patches, batch runs over seeds, snapshot and fork from
+  the UI, SQLite results, comparison charts).
 
 ## Open questions
 

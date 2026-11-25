@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from .behaviors import BEHAVIORS, Behavior
+from .behaviors import Behavior
 from .composite import CompositeError, GroupProbe, flatten
 from .library import Library, LibraryError
 from .metrics import Counter, Gauge, Samples
@@ -116,6 +116,10 @@ class Context:
     def gauge(self, name: str) -> Gauge:
         return self.metrics.gauge(name)
 
+    def connected(self, port: str) -> bool:
+        """Whether an output port has a link (sending on an unlinked port is 'unrouted')."""
+        return (self.entity_id, port) in self._sim._out
+
 
 class Link:
     def __init__(self, sim: Simulation, spec: ConnectionSpec) -> None:
@@ -173,7 +177,7 @@ class Simulation:
         self._msg_seq = 0
         self._listeners: list[Listener] = []
         self._started = False
-        self.library = library or Library(behaviors or BEHAVIORS)
+        self.library = library or Library(behaviors)
 
         self.entities: dict[str, Behavior] = {}
         self.ports: dict[str, tuple[list[str], list[str]]] = {}
@@ -196,7 +200,10 @@ class Simulation:
         except LibraryError as e:
             raise ModelError(f"entity {spec.id!r}: {e}") from e
         params = {**resolved.defaults, **copy.deepcopy(spec.params)}
-        self.ports[spec.id] = resolved.behavior.ports(params)
+        try:
+            self.ports[spec.id] = resolved.behavior.ports(params)
+        except ValueError as e:  # e.g. an invalid state machine
+            raise ModelError(f"entity {spec.id!r}: {e}") from e
         self.entities[spec.id] = resolved.behavior(Context(self, spec, params))
 
     def _add_link(self, conn: ConnectionSpec) -> None:

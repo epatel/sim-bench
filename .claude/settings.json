@@ -2,6 +2,9 @@
   "permissions": {
     "deny": [
       "Edit(/.venv/**)"
+    ],
+    "ask": [
+      "Edit(/libraries/**/behaviors/*.py)"
     ]
   },
   "hooks": {

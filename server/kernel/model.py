@@ -9,8 +9,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from .yamlio import load_yaml
 
 
 class PortRef(BaseModel):
@@ -129,5 +130,5 @@ class ModelSpec(BaseModel):
 
 
 def load_model(path: str | Path) -> ModelSpec:
-    data = yaml.safe_load(Path(path).read_text())
+    data = load_yaml(Path(path).read_text())
     return ModelSpec.model_validate(data)

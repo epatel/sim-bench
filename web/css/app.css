@@ -119,3 +119,13 @@ details.lib[open] > summary::before { transform: rotate(90deg); }
 .segmented button { border: 0; border-radius: 0; background: var(--panel-2); color: var(--muted); padding: 5px 12px; }
 .segmented button.on { background: #2a2312; color: var(--accent); }
 .segmented button:disabled { opacity: .45; cursor: not-allowed; }
+
+/* multi-line JSON params (state machines) and machine state chips */
+.field textarea {
+  width: 100%; resize: vertical; font: 11.5px/1.45 var(--mono); color: var(--text);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px;
+}
+.field textarea.invalid { border-color: var(--bad); }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 2px 0 10px; }
+.chip { font: 11px var(--mono); padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
+.chip.on { color: var(--accent); border-color: #5a4518; background: #2a2312; }

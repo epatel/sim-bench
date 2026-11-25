@@ -20,17 +20,23 @@ builds a dict, e.g. router routes ``{s1: 1, s2: 1, ...}``.
 
 from __future__ import annotations
 
-import ast
 import copy
-import operator
+import importlib.util
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import yaml
 
 from .behaviors import BEHAVIORS, Behavior
+from .expr import ExprError, evaluate
+from .machine import Machine
+from .yamlio import load_yaml
+
+BUILTINS: dict[str, type[Behavior]] = {**BEHAVIORS, Machine.kind: Machine}
 
 
 class LibraryError(ValueError):
@@ -77,7 +83,7 @@ class Library:
     """All item types (built-in + loaded) and templates."""
 
     def __init__(self, behaviors: dict[str, type[Behavior]] | None = None) -> None:
-        self.behaviors = behaviors or BEHAVIORS
+        self.behaviors = dict(behaviors or BUILTINS)
         self.types: dict[str, ItemType] = {}
         self.templates: dict[str, Template] = {}
         self.libraries: dict[str, dict[str, Any]] = {}
@@ -98,30 +104,34 @@ class Library:
         name = d.name
         meta = _read(d / "library.yaml")
         self.libraries[name] = {"name": name, "description": meta.get("description", "")}
-        raw_types = {}
+        for f in sorted((d / "behaviors").glob("*.py")):
+            self._load_behaviors(name, f)
         for f in sorted((d / "types").glob("*.yaml")):
-            data = _read(f)
-            tname = data.get("name", f.stem)
-            raw_types[tname] = (f, data)
-        for tname, (f, data) in raw_types.items():
-            parent = data.get("extends")
-            if not parent:
-                raise LibraryError(f"{f}: missing 'extends'")
-            if "/" not in parent and parent not in self.behaviors:
-                parent = f"{name}/{parent}"  # same-library reference
-            self.add_type(
-                ItemType(
-                    id=f"{name}/{tname}",
-                    library=name,
-                    extends=parent,
-                    description=data.get("description", ""),
-                    icon=data.get("icon"),
-                    params=data.get("params") or {},
-                )
-            )
+            self.add_type(self._type_from(name, f, _read(f)))
         for f in sorted((d / "templates").glob("*.yaml")):
-            data = _read(f)
-            self.add_template(_template_from(name, f.stem, data, f))
+            self.add_template(_template_from(name, f.stem, _read(f), f))
+
+    def _load_behaviors(self, lib: str, path: Path) -> None:
+        for cls in _behaviors_in(_load_module(lib, path)):
+            bid = f"{lib}/{cls.kind}"
+            if bid in self.behaviors:
+                raise LibraryError(f"{path}: duplicate behavior {bid!r}")
+            self.behaviors[bid] = cls
+
+    def _type_from(self, lib: str, path: Path, data: dict[str, Any]) -> ItemType:
+        parent = data.get("extends")
+        if not parent:
+            raise LibraryError(f"{path}: missing 'extends'")
+        if "/" not in parent and parent not in self.behaviors:
+            parent = f"{lib}/{parent}"  # same-library reference
+        return ItemType(
+            id=f"{lib}/{data.get('name', path.stem)}",
+            library=lib,
+            extends=parent,
+            description=data.get("description", ""),
+            icon=data.get("icon"),
+            params=_type_params(data),
+        )
 
     def add_type(self, t: ItemType) -> None:
         if t.id in self.types or t.id in self.behaviors:
@@ -140,39 +150,37 @@ class Library:
 
     # --- resolution -------------------------------------------------------
 
-    def resolve(self, type_id: str) -> Resolved:
-        chain: list[str] = []
-        layers: list[dict[str, Any]] = []
-        description = icon = library = None
+    def chain(self, type_id: str) -> list[ItemType]:
+        """The library types from ``type_id`` down to (not including) its behavior."""
+        out: list[ItemType] = []
         cur = type_id
         while cur not in self.behaviors:
-            if cur in chain:
-                raise LibraryError(
-                    f"type {type_id!r}: 'extends' cycle {' -> '.join(chain + [cur])}"
-                )
+            if cur in (t.id for t in out):
+                path = " -> ".join([t.id for t in out] + [cur])
+                raise LibraryError(f"type {type_id!r}: 'extends' cycle {path}")
             t = self.types.get(cur)
             if t is None:
-                where = f" (extended by {chain[-1]!r})" if chain else ""
+                where = f" (extended by {out[-1].id!r})" if out else ""
                 raise LibraryError(f"unknown type {cur!r}{where}")
-            chain.append(cur)
-            layers.append(t.params)
-            description = description or t.description
-            icon = icon or t.icon
-            library = library if library is not None else t.library
+            out.append(t)
             cur = t.extends
-        chain.append(cur)
-        behavior = self.behaviors[cur]
+        return out
+
+    def resolve(self, type_id: str) -> Resolved:
+        types = self.chain(type_id)
+        base = types[-1].extends if types else type_id
+        behavior = self.behaviors[base]
         defaults = {k: copy.deepcopy(v.get("default")) for k, v in behavior.params_schema.items()}
-        for layer in reversed(layers):  # base first, most specific last
-            defaults.update(copy.deepcopy(layer))
+        for t in reversed(types):  # base first, most specific last
+            defaults.update(copy.deepcopy(t.params))
         return Resolved(
             id=type_id,
             behavior=behavior,
             defaults=defaults,
-            description=description or behavior.description,
-            icon=icon or behavior.icon,
-            library=library or "",
-            chain=chain,
+            description=_first([t.description for t in types], behavior.description),
+            icon=_first([t.icon for t in types], behavior.icon),
+            library=types[0].library if types else _library_of(base),
+            chain=[t.id for t in types] + [base],
         )
 
     def all_type_ids(self) -> list[str]:
@@ -230,9 +238,66 @@ class Library:
 # --- template helpers ----------------------------------------------------------
 
 
+# --- tier-3 Python behaviors ------------------------------------------------------
+#
+# Files under libraries/<lib>/behaviors/*.py are trusted project code, like any
+# other source file in the repo: they are imported and run in the server process.
+# They are never loaded from model files or the UI.
+
+_MODULE_CACHE: dict[Path, tuple[int, ModuleType]] = {}
+
+
+def _load_module(lib: str, path: Path) -> ModuleType:
+    """Import a behavior file, reusing the module until the file changes."""
+    mtime = path.stat().st_mtime_ns
+    hit = _MODULE_CACHE.get(path)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    # A flat, importable name so pickled snapshots can find the classes again.
+    name = re.sub(r"\W", "_", f"simbench_behaviors_{lib}_{path.stem}")
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception as e:
+        sys.modules.pop(name, None)
+        raise LibraryError(f"{path}: {type(e).__name__}: {e}") from e
+    _MODULE_CACHE[path] = (mtime, module)
+    return module
+
+
+def _is_behavior_class(obj: Any, module: ModuleType) -> bool:
+    """A Behavior subclass defined in ``module`` (not imported into it) with a kind."""
+    if not (isinstance(obj, type) and issubclass(obj, Behavior)):
+        return False
+    return obj.__module__ == module.__name__ and bool(obj.kind)
+
+
+def _behaviors_in(module: ModuleType) -> list[type[Behavior]]:
+    return [obj for obj in vars(module).values() if _is_behavior_class(obj, module)]
+
+
+def _first(values: list[Any], default: Any) -> Any:
+    return next((v for v in values if v), default)
+
+
+def _library_of(behavior_id: str) -> str:
+    """'web/token-bucket' -> 'web'; built-in kinds have no library."""
+    return behavior_id.split("/")[0] if "/" in behavior_id else ""
+
+
+def _type_params(data: dict[str, Any]) -> dict[str, Any]:
+    """A type's param defaults; a top-level ``machine:`` is the ``machine`` param."""
+    params = dict(data.get("params") or {})
+    if "machine" in data:
+        params["machine"] = data["machine"]
+    return params
+
+
 def _read(path: Path) -> dict[str, Any]:
     try:
-        data = yaml.safe_load(path.read_text()) or {}
+        data = load_yaml(path.read_text()) or {}
     except yaml.YAMLError as e:
         raise LibraryError(f"{path}: {e}") from e
     if not isinstance(data, dict):
@@ -298,35 +363,14 @@ def _repeat(raw: dict[str, Any], env: dict[str, Any]):
 
 
 _FIELD = re.compile(r"\{([^{}]+)\}")
-_OPS = {
-    ast.Add: operator.add,
-    ast.Sub: operator.sub,
-    ast.Mult: operator.mul,
-    ast.FloorDiv: operator.floordiv,
-}
 
 
 def _eval(expr: str, env: dict[str, Any]) -> Any:
-    """Evaluate a tiny arithmetic expression over template params."""
+    """Evaluate a template expression (no function calls allowed)."""
     try:
-        node = ast.parse(expr.strip(), mode="eval").body
-    except SyntaxError as e:
-        raise LibraryError(f"bad expression {expr!r}") from e
-
-    def ev(n: ast.AST) -> Any:
-        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float, str)):
-            return n.value
-        if isinstance(n, ast.Name):
-            if n.id not in env:
-                raise LibraryError(f"unknown name {n.id!r} in {expr!r}")
-            return env[n.id]
-        if isinstance(n, ast.BinOp) and type(n.op) in _OPS:
-            return _OPS[type(n.op)](ev(n.left), ev(n.right))
-        if isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.USub):
-            return -ev(n.operand)
-        raise LibraryError(f"unsupported expression {expr!r}")
-
-    return ev(node)
+        return evaluate(expr, env)
+    except ExprError as e:
+        raise LibraryError(str(e)) from e
 
 
 def _subst(value: Any, env: dict[str, Any]) -> Any:

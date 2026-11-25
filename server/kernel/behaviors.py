@@ -105,11 +105,12 @@ class Server(Behavior):
             "help": "max waiting messages (empty = unbounded)",
         },
         "error_rate": {"type": "float", "default": 0.0, "help": "probability a job fails"},
+        "error_port": {"type": "bool", "default": False, "help": "send failed jobs to 'error'"},
     }
 
     @classmethod
     def ports(cls, params):
-        return ["in"], ["out"]
+        return ["in"], ["out", "error"] if params.get("error_port") else ["out"]
 
     def on_start(self) -> None:
         p = self.ctx.params
@@ -150,7 +151,10 @@ class Server(Behavior):
         error_rate = float(self.ctx.params.get("error_rate", 0.0))
         if error_rate and self.ctx.rng.random() < error_rate:
             self.ctx.counter("errors").add()
-            self.ctx.drop(msg, "error")
+            if self.ctx.params.get("error_port"):
+                self.ctx.send("error", msg)
+            else:
+                self.ctx.drop(msg, "error")
         else:
             self.ctx.counter("completed").add()
             self.ctx.send("out", msg)

@@ -335,7 +335,7 @@ export class Editor extends EventTarget {
     for (const r of records) {
       if (r.type === "send") {
         this.flights.push({ link: r.link, t0: r.t, t1: r.arrive, wall });
-      } else if (r.type === "drop" || r.type === "unrouted") {
+      } else if (flashesEntity(r)) {
         this.flashes.push({ entity: r.entity, wall, color: C.bad });
       } else if (r.type === "lost") {
         this.flashes.push({ link: r.link, wall, color: C.bad });
@@ -659,12 +659,19 @@ const DRAGS = {
   },
 };
 
+// Drops and unrouted messages flash the node red; a machine absorbing a message doesn't.
+function flashesEntity(r) {
+  if (r.type === "unrouted") return true;
+  return r.type === "drop" && r.reason !== "absorbed";
+}
+
 // One-line live summary under a node, by behavior kind.
 const BADGES = {
   source: (s) => `${fmt(s.emitted?.value)} sent`,
   server: (s) => `q ${fmt(s.queue?.value)} · ${Math.round((s.utilization || 0) * 100)}% busy`,
   sink: (s) => `${fmt(s.received?.value)} · ${fmt(s.latency?.mean)} lat`,
   delay: (s, e) => (e.collapsed ? `${fmt(s.passed?.value)} passed` : ""),
+  machine: (s) => `● ${s.state}${s.last_error ? "  ⚠ error" : ""}`,
 };
 
 function badgeText(e, s) {

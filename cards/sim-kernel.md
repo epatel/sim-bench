@@ -6,7 +6,7 @@ How the discrete-event kernel in `server/kernel/` works, and the rules it must k
 
 - `ModelSpec` / `EntitySpec` / `ConnectionSpec` (`model.py`) is the static model. Connections use `from: entity.port` and `to: entity.port`. Entity ids may not contain `.`.
 - `Simulation(model, seed)` (`sim.py`) provides `step()`, `run(until=, max_events=)`, `summary()`, `snapshot()`, `restore()`, `fork()`, `add_listener()`, `next_time` and `now`.
-- `BEHAVIORS` (`behaviors.py`) is the registry from type name to Behavior class. Built-in types are `source`, `server`, `delay`, `router` and `sink`.
+- `BEHAVIORS` (`behaviors.py`) holds the tier-1 built-ins: `source`, `server`, `delay`, `router` and `sink`. `library.BUILTINS` adds `machine`. A `Library` adds Python behaviors from `libraries/*/behaviors/`.
 - CLI: `.venv/bin/python -m server.kernel MODEL.yaml --until T --seed N [--json]`.
 
 ## Event flow
@@ -33,7 +33,7 @@ sequenceDiagram
 - **Ordered links.** When `ordered: true` (the default), arrivals are clamped so they never overtake earlier messages on the same link.
 - **Bandwidth.** Transmissions queue on the link: `depart = max(now, busy_until) + size / bandwidth`.
 - **Snapshot.** `snapshot()` pickles the whole `Simulation` without listeners. Any new runtime state must be picklable: no lambdas or open handles stored on behaviors. `restore()` is only for snapshots this process made, never for uploaded data.
-- **Behaviors only touch `self.ctx`.** The Context API (`now`, `params`, `rng`, `send`, `drop`, `schedule`, `message`, `counter`, `samples`, `gauge`) is the surface that tier-2 state machines and tier-3 scripts will share. Keep it small.
+- **Behaviors only touch `self.ctx`.** The Context API (`now`, `params`, `rng`, `send`, `drop`, `schedule`, `message`, `counter`, `samples`, `gauge`, `connected`) is the surface that state machines and Python behaviors share. Keep it small.
 
 ## Metrics
 

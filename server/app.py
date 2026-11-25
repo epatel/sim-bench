@@ -37,6 +37,7 @@ from .kernel import (
     Simulation,
     suggest_abstract,
 )
+from .kernel.yamlio import load_yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 PROJECTS = ROOT / "projects"
@@ -100,6 +101,14 @@ def list_types() -> list[dict[str, Any]]:
             name: {**meta, "default": r.defaults.get(name)}
             for name, meta in r.behavior.params_schema.items()
         }
+        # params a type adds for its own use (e.g. a machine's thresholds)
+        schema.update(
+            {
+                k: {"type": _guess_type(v), "default": v}
+                for k, v in r.defaults.items()
+                if k not in schema
+            }
+        )
         out.append(
             {
                 "kind": tid,
@@ -114,6 +123,16 @@ def list_types() -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+def _guess_type(value: Any) -> str:
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, float):
+        return "float"
+    return "string" if isinstance(value, str) else "object"
 
 
 @app.get("/api/libraries")
@@ -151,7 +170,7 @@ def list_models() -> list[dict[str, str]]:
     out = []
     for p in sorted(PROJECTS.rglob("*.yaml")):
         try:
-            name = (yaml.safe_load(p.read_text()) or {}).get("name", p.stem)
+            name = (load_yaml(p.read_text()) or {}).get("name", p.stem)
         except yaml.YAMLError:
             name = f"{p.stem} (unreadable)"
         out.append({"path": p.relative_to(PROJECTS).as_posix(), "name": name})
@@ -163,7 +182,7 @@ def get_model(rel: str) -> dict[str, Any]:
     path = model_path(rel)
     if not path.exists():
         raise HTTPException(404, f"no model {rel}")
-    model = ModelSpec.model_validate(yaml.safe_load(path.read_text()))
+    model = ModelSpec.model_validate(load_yaml(path.read_text()))
     return model.model_dump(by_alias=True)
 
 
@@ -298,6 +317,9 @@ class RunSession:
             await self.ws.send_json({"type": "loaded", "ports": ports})
             await self.send_frame(summary=True)
             return
+        if cmd == "speed":  # a setting, valid before any model is loaded
+            self.speed = max(1e-6, float(msg.get("value", 1.0)))
+            return
         if self.sim is None:
             await self.ws.send_json({"type": "error", "message": "load a model first"})
             return
@@ -313,8 +335,6 @@ class RunSession:
         elif cmd == "reset":
             self._build()
             await self.send_frame(summary=True)
-        elif cmd == "speed":
-            self.speed = max(1e-6, float(msg.get("value", 1.0)))
         else:
             await self.ws.send_json({"type": "error", "message": f"unknown cmd {cmd!r}"})
 

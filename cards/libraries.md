@@ -8,11 +8,12 @@ How item-type libraries and templates work (`libraries/`, `server/kernel/library
 libraries/<lib>/library.yaml       name, description
 libraries/<lib>/types/<name>.yaml  item type    -> referenced as "<lib>/<name>"
 libraries/<lib>/templates/*.yaml   template     -> referenced as "<lib>/<name>"
+libraries/<lib>/behaviors/*.py     Python behaviors -> "<lib>/<kind>" (trusted code, see the behaviors card)
 ```
 
 Shipped libraries:
-- `web`: client, network, load-balancer, app-server, cache, database, response. Templates: `lb-pool`, `cached-db`.
-- `queueing`: poisson-source, mm-server. Template: `tandem`.
+- `web`: client, network, load-balancer, app-server, cache, database, response, circuit-breaker (a machine), and token-bucket (Python). Templates: `lb-pool`, `cached-db`.
+- `queueing`: poisson-source, mm-server, batcher (a machine). Template: `tandem`.
 
 ## Item types
 
@@ -25,7 +26,7 @@ params: {servers: 4, service: {dist: lognormal, mean: 0.12, std: 0.05}}
 ```
 
 - `Library.resolve(id)` walks `extends` down to a built-in behavior. Defaults merge in this order: the behavior's `params_schema` defaults, then each ancestor's params, then the type's own params. The entity's own `params` win last. This merge happens in `Simulation.__init__`, and the model itself is never changed.
-- Only the built-in behavior's params exist. A type can change their defaults but cannot add new params. New params need a new behavior (tier-2 and tier-3 behaviors are planned for M5).
+- A type may add params of its own. They are merged like the others, and `/api/types` exposes them with a guessed type. They only matter if the behavior reads them, which a state machine does through its expressions. A top-level `machine:` key becomes the `machine` param.
 - Broken chains (a cycle, an unknown parent, a missing `extends`) fail when the library loads (`Library.check`). The API then returns a 500 error naming the file.
 - A router-based type gets its ports from `routes`, so a type like `web/cache` has the outputs `hit` and `miss`.
 

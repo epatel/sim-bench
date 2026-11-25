@@ -2,7 +2,7 @@
 
 ## About this project
 
-A local workbench that runs a discrete-event simulation of entities, messages and events in a Python server, edited and watched through a browser canvas. Models can be refined from high-level to low-level where needed, and branched for "what if" scenarios. A Claude agent (Claude Agent SDK on the subscription login) will drive the model and derive behavior from other projects' source code. Milestones M1 (kernel), M2 (server and canvas), M3 (libraries and templates) and M4 (composites and calibration) are done. Behaviors, scenarios and the agent are planned.
+A local workbench that runs a discrete-event simulation of entities, messages and events in a Python server, edited and watched through a browser canvas. Models can be refined from high-level to low-level where needed, and branched for "what if" scenarios. A Claude agent (Claude Agent SDK on the subscription login) will drive the model and derive behavior from other projects' source code. Milestones M1 (kernel), M2 (server and canvas), M3 (libraries and templates), M4 (composites and calibration) and M5 (state machines and Python behaviors) are done. Scenarios and the agent are planned.
 
 @project-plan.md
 
@@ -24,6 +24,7 @@ Domains
 - [server-and-canvas](cards/server-and-canvas.md) — when changing the REST/WebSocket protocol, the canvas editor, the inspector or live-run streaming
 - [libraries](cards/libraries.md) — when adding or editing item types, templates or a library, or changing type resolution
 - [composites](cards/composites.md) — when changing groups, abstract/expanded modes, `flatten`, boundary probes or calibration
+- [behaviors](cards/behaviors.md) — when writing an entity with custom logic (state machine or Python behavior), or changing the expression language
 
 Decisions
 - [standing-defaults](cards/standing-defaults.md) — when adding a Python dependency or the first SQLite table (venv, migrations)
@@ -36,6 +37,7 @@ When a commit adds non-obvious logic or settles an architecture choice, update o
 - The test suite runs when you finish. A failing test sends you back once. Fix it, or explain why it is expected to fail.
 - Force pushes are blocked. Push normally, or ask the user.
 - Edits under `.venv/` are blocked. Change `requirements*.txt` instead.
+- Edits to Python behaviors (`libraries/**/behaviors/*.py`) need the user's approval, because they run as code in the server. Prefer a state machine (`extends: machine`) when one can express the behavior.
 - After each edit, aihealth reports any new or worsened code smells in that file. Before you stop, it checks all uncommitted changes and gives you one more turn if health got worse. Fix the smells or say why they are intended.
 
 ## Code health
