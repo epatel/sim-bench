@@ -54,7 +54,12 @@
     </section>
 
     <aside class="inspector">
-      <div id="inspector"></div>
+      <div class="tabs">
+        <button data-tab="inspector" class="on"><i class="fa-solid fa-sliders"></i> Inspector</button>
+        <button data-tab="agent"><i class="fa-solid fa-wand-magic-sparkles"></i> Agent</button>
+      </div>
+      <div id="inspector" class="pane"></div>
+      <div id="agent" class="pane hidden"></div>
     </aside>
   </main>
 

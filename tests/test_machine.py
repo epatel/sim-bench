@@ -263,6 +263,32 @@ def test_python_behavior_is_registered_under_its_library(tmp_path):
     assert tb.defaults == {"rate": 10.0, "burst": 20.0}
 
 
+def behavior_code(cls: str, kind: str, body: str, schema: str = "") -> str:
+    """Source for a one-port-in, one-port-out Python behavior."""
+    return (
+        "from server.kernel import Behavior\n"
+        f"class {cls}(Behavior):\n"
+        f"    kind = '{kind}'\n"
+        f"{schema}"
+        "    @classmethod\n"
+        "    def ports(cls, params):\n"
+        "        return ['in'], ['out']\n"
+        "    def on_message(self, port, msg):\n"
+        f"{body}"
+    )
+
+
+def through(item_type: str, count: int):
+    """source -> one entity "e" of item_type -> sink "out"."""
+    ents = [
+        {"id": "src", "type": "source", "params": {"count": count}},
+        {"id": "e", "type": item_type},
+        {"id": "out", "type": "sink"},
+    ]
+    conns = [{"from": "src.out", "to": "e.in"}, {"from": "e.out", "to": "out.in"}]
+    return ents, conns
+
+
 def write_lib(tmp_path, code):
     (tmp_path / "t" / "behaviors").mkdir(parents=True)
     (tmp_path / "t" / "library.yaml").write_text("name: t\n")
@@ -279,27 +305,17 @@ def test_broken_python_behavior_is_a_library_error(tmp_path):
 def test_python_behavior_can_be_extended_by_a_yaml_type(tmp_path):
     root = write_lib(
         tmp_path,
-        "from server.kernel import Behavior\n"
-        "class Echo(Behavior):\n"
-        "    kind = 'echo'\n"
-        "    params_schema = {'times': {'type': 'int', 'default': 1}}\n"
-        "    @classmethod\n"
-        "    def ports(cls, params):\n"
-        "        return ['in'], ['out']\n"
-        "    def on_message(self, port, msg):\n"
-        "        self.ctx.counter('seen').add(self.ctx.params['times'])\n"
-        "        self.ctx.send('out', msg)\n",
+        behavior_code(
+            "Echo",
+            "echo",
+            "        self.ctx.counter('seen').add(self.ctx.params['times'])\n"
+            "        self.ctx.send('out', msg)\n",
+            schema="    params_schema = {'times': {'type': 'int', 'default': 1}}\n",
+        ),
     )
     (root / "t" / "types").mkdir()
     (root / "t" / "types" / "loud.yaml").write_text("extends: echo\nparams: {times: 3}\n")
-    lib = Library.load(root)
-    ents = [
-        {"id": "src", "type": "source", "params": {"count": 2}},
-        {"id": "e", "type": "t/loud"},
-        {"id": "out", "type": "sink"},
-    ]
-    conns = [{"from": "src.out", "to": "e.in"}, {"from": "e.out", "to": "out.in"}]
-    _, e = run(ents, conns, lib=lib)
+    _, e = run(*through("t/loud", count=2), lib=Library.load(root))
     assert e["e"]["seen"]["value"] == 6 and e["out"]["received"]["value"] == 2
 
 
@@ -309,3 +325,15 @@ def test_model_and_library_yaml_keep_on_as_a_key():
     assert load_yaml("on: 1\nyes: no\nt: true") == {"on": 1, "yes": "no", "t": True}
     cb = LIB.resolve("web/circuit-breaker").defaults["machine"]
     assert "on" in cb and True not in cb
+
+
+def test_fork_survives_a_reloaded_behavior_file(tmp_path):
+    root = write_lib(tmp_path, behavior_code("Pass", "pass", "        self.ctx.send('out', msg)\n"))
+    sim, _ = run(*through("t/pass", count=3), until=1, lib=Library.load(root))
+    path = root / "t" / "behaviors" / "b.py"
+    path.write_text(path.read_text() + "\n# edited\n")
+    import os
+
+    os.utime(path, ns=(1, 2))  # a different mtime -> a new module version
+    Library.load(root)
+    sim.fork()  # would raise PicklingError if the old class were shadowed

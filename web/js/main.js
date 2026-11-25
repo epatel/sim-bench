@@ -2,6 +2,7 @@
 import { api, RunClient } from "./api.js";
 import { Editor, NODE_H, NODE_W, fmt, linkKey, splitRef } from "./canvas.js";
 import { loadIconFont } from "./icons.js";
+import { AgentChat } from "./agent.js";
 import { Results } from "./results.js";
 
 const $ = (id) => document.getElementById(id);
@@ -104,6 +105,38 @@ const app = {
 
 const editor = new Editor($("canvas"), app);
 const results = new Results($("results"));
+const chat = new AgentChat($("agent"), {
+  getModel: () => state.model,
+  applyModel: applyAgentModel,
+  onBatch: (id) => results.show(id),
+});
+
+// The agent changed the model: adopt it (the file path stays), place new entities.
+function applyAgentModel(model) {
+  const wasEmpty = state.model.entities.length === 0;
+  for (const key of ["entities", "connections", "groups", "scenarios"]) model[key] ??= [];
+  for (const e of model.entities) e.params ??= {};
+  layout(model);
+  state.model = model;
+  if (editor.selection && !selectionExists(editor.selection)) editor.select(null);
+  changed();
+  if (wasEmpty) requestAnimationFrame(() => editor.fit());
+}
+
+function selectionExists(sel) {
+  if (sel.kind === "entity") return state.model.entities.some((e) => e.id === sel.id);
+  if (sel.kind === "link") return state.model.connections.some((c) => linkKey(c) === sel.id);
+  if (sel.kind === "group") return state.model.groups.some((g) => g.id === sel.id);
+  return true;
+}
+
+for (const tab of document.querySelectorAll(".tabs button")) {
+  tab.onclick = () => {
+    for (const t of document.querySelectorAll(".tabs button")) t.classList.toggle("on", t === tab);
+    $("inspector").classList.toggle("hidden", tab.dataset.tab !== "inspector");
+    $("agent").classList.toggle("hidden", tab.dataset.tab !== "agent");
+  };
+}
 const run = new RunClient();
 
 // --- model edits and validation --------------------------------------------------

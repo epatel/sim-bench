@@ -16,6 +16,10 @@ The FastAPI server (`server/app.py`) and the browser UI (`web/`). Read this befo
 | `POST /api/batches`, `GET /api/batches[/{id}]` | Batch runs over scenarios and seeds, and their results (see the scenarios card) |
 | `POST /api/validate` | Returns `{ok, ports}` or `{ok: false, error}`. The UI calls it (debounced) after every edit to learn ports, because router ports depend on params. |
 
+## WebSocket `/ws/agent`
+
+The agent chat. See the agent card.
+
 ## WebSocket `/ws/run`
 
 One `RunSession` (one `Simulation`) per connection. The protocol is documented in the `RunSession` docstring.

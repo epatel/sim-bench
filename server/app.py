@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -28,6 +30,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
+from . import agent
 from .kernel import (
     CompositeError,
     Library,
@@ -48,6 +51,7 @@ LIBRARIES = ROOT / "libraries"
 WEB = ROOT / "web"
 
 app = FastAPI(title="Simulation Workbench")
+log = logging.getLogger("simbench")
 
 
 # --- models on disk -----------------------------------------------------------
@@ -529,6 +533,96 @@ async def run_socket(ws: WebSocket) -> None:
         ticker.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await ticker
+
+
+# --- the agent (M7) ---------------------------------------------------------------
+
+REMOVED_KEYS = agent.strip_api_keys()  # the agent must run on the subscription login
+
+
+def _agent_env(workspace: agent.Workspace, send) -> agent.Env:
+    def start_batch(model: ModelSpec, scenarios: list[str], seeds: list[int], until: float) -> int:
+        params = {"scenarios": scenarios, "seeds": seeds, "until": until, "samples": 40}
+        batch_id = store().create_batch("batch", model.model_dump(by_alias=True), params)
+        _run_batch(batch_id, model, params)  # the tool calls this in a worker thread
+        return batch_id
+
+    return agent.Env(
+        workspace=workspace,
+        load_library=lambda: Library.load(LIBRARIES),  # library errors go back to the agent
+        libraries_dir=LIBRARIES,
+        start_batch=start_batch,
+        batch_result=get_batch,
+        notify=send,
+    )
+
+
+@app.get("/api/agent/status")
+def agent_status() -> dict[str, Any]:
+    from claude_agent_sdk import __version__ as sdk_version
+
+    return {
+        "sdk": sdk_version,
+        "model": os.environ.get("SIMBENCH_AGENT_MODEL") or "default for your login",
+        "api_keys_removed": REMOVED_KEYS,
+        "tools": [n.rsplit("__", 1)[-1] for n in agent.tool_names()],
+    }
+
+
+class AgentChat:
+    """One browser chat. Client: {"cmd": "prompt", "text", "model"} | interrupt | reset.
+    Server: text, tool, tool_result, model, batch, done and error events."""
+
+    def __init__(self, ws: WebSocket) -> None:
+        self.send = ws.send_json
+        self.workspace = agent.Workspace({}, lambda m: check_model(m))
+        self.session = self.new_session()
+        self.task: asyncio.Task | None = None
+
+    def new_session(self) -> agent.AgentSession:
+        return agent.AgentSession(_agent_env(self.workspace, self.send), self.send)
+
+    async def handle(self, msg: dict[str, Any]) -> None:
+        cmd = msg.get("cmd")
+        if cmd == "prompt":
+            await self.prompt(str(msg.get("text", "")), msg.get("model") or {})
+        elif cmd == "interrupt":
+            await self.session.interrupt()
+        elif cmd == "reset":
+            await self.session.close()
+            self.session = self.new_session()
+
+    async def prompt(self, text: str, model: dict[str, Any]) -> None:
+        if self.task and not self.task.done():
+            await self.send({"type": "error", "message": "still working on the last request"})
+            return
+        self.task = asyncio.create_task(self.ask(text, model))  # so interrupts get through
+
+    async def ask(self, text: str, model: dict[str, Any]) -> None:
+        try:
+            await self.session.ask(text, model)
+        except Exception as e:  # report it in the chat (e.g. the CLI is not logged in)
+            log.exception("agent prompt failed")
+            await self.send({"type": "error", "message": f"{type(e).__name__}: {e}"})
+            await self.send({"type": "done", "error": True})
+
+    async def close(self) -> None:
+        if self.task and not self.task.done():
+            self.task.cancel()
+        await self.session.close()
+
+
+@app.websocket("/ws/agent")
+async def agent_socket(ws: WebSocket) -> None:
+    await ws.accept()
+    chat = AgentChat(ws)
+    try:
+        while True:
+            await chat.handle(await ws.receive_json())
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await chat.close()
 
 
 # --- static frontend ----------------------------------------------------------

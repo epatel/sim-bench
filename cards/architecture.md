@@ -9,7 +9,7 @@ flowchart LR
   Web["web/<br/>canvas, panels"] <-- REST + WebSocket --> API["server/app.py<br/>FastAPI"]
   API --> Kernel["server/kernel/<br/>discrete-event engine"]
   API --> Store["projects/ models<br/>libraries/ types + templates"]
-  API --> Agent["server/agent/ (planned M7)<br/>claude-agent-sdk"]
+  API --> Agent["server/agent/<br/>claude-agent-sdk"]
   API --> DB[("runs.sqlite3<br/>batches and what-ifs")]
 ```
 
@@ -21,7 +21,7 @@ flowchart LR
 | `projects/examples/` | built (M1) | Example models in YAML (`mm1.yaml`, `web-backend.yaml`). |
 | `server/app.py`, `web/` | built (M2) | FastAPI REST for models and types, a WebSocket that streams live runs, and the vanilla-JS canvas editor. Font Awesome is vendored. |
 | `libraries/`, `server/kernel/library.py` | built (M3) | Item types (`extends` chains with merged defaults) and parameterized templates, as YAML. |
-| `server/agent/` | planned (M7) | Claude Agent SDK session and in-process MCP tools that call the kernel and the model store. |
+| `server/agent/`, `web/js/agent.js` | built (M7) | Claude Agent SDK session (subscription login, isolated from repo settings) and in-process MCP tools that edit the browser's model, run simulations and batches, and define YAML types. |
 
 ## Boundaries
 

@@ -21,6 +21,7 @@ builds a dict, e.g. router routes ``{s1: 1, s2: 1, ...}``.
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import re
 import sys
@@ -253,8 +254,10 @@ def _load_module(lib: str, path: Path) -> ModuleType:
     hit = _MODULE_CACHE.get(path)
     if hit and hit[0] == mtime:
         return hit[1]
-    # A flat, importable name so pickled snapshots can find the classes again.
-    name = re.sub(r"\W", "_", f"simbench_behaviors_{lib}_{path.stem}")
+    # A flat name, unique per file version, kept in sys.modules: snapshots of a run
+    # that uses an older version of the file can still find their classes.
+    version = hashlib.sha1(f"{path.resolve()}:{mtime}".encode()).hexdigest()[:10]
+    name = re.sub(r"\W", "_", f"simbench_behaviors_{lib}_{path.stem}_{version}")
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module

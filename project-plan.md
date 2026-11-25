@@ -182,7 +182,7 @@ requirements.txt   (.venv, gitignored)
   Python scripts with the restricted ctx.
 - [x] **M6 Scenarios.** Patches, batch runs over seeds, snapshot and fork,
   SQLite results, comparison charts.
-- [ ] **M7 Agent.** SDK session, chat panel, MCP model and sim tools, and a
+- [x] **M7 Agent.** SDK session, chat panel, MCP model and sim tools, and a
   subscription-only auth check.
 - [ ] **M8 Source reading.** Registered source dirs, read-only permissions, the
   extract-behavior skill, pending-diff accept or reject, and provenance links.
@@ -219,6 +219,12 @@ requirements.txt   (.venv, gitignored)
   metrics appear automatically.
 - 2026-11-25: A what-if fork uses common random numbers: both forks continue
   from the same snapshot. The baseline fork is the plain continuation.
+- 2026-11-25: The agent edits the model through tools against a server-side
+  copy that the browser sends with each prompt. The browser stays the owner;
+  there is no server-side model state to keep in sync.
+- 2026-11-25: The agent runs with `setting_sources=[]`, `tools=[]` and
+  `skills=[]`: the repo's developer setup (hooks, CLAUDE.md) is not the
+  product's agent setup.
 - 2026-11-25: code-health uses the global aihealth install
   (`form: existing`) at the user's request. The pin and the install command are
   in `CLAUDE.md`.
@@ -274,8 +280,19 @@ requirements.txt   (.venv, gitignored)
   is paused, "What if, from here" forks it into a baseline and a scenario
   branch with the same random numbers. The results drawer has a dot+CI chart,
   a time-series chart, a legend and a table. There are 123 tests.
-- Next: M7. The agent: Claude Agent SDK session, chat panel, and MCP tools for
-  the model, libraries, scenarios and batches.
+- M7 is done. The Claude Agent SDK session (`server/agent/`) has 17 in-process
+  workbench tools. It edits a validated, undoable copy of the browser's model,
+  and each change is pushed to the canvas live. It is isolated from the repo's
+  settings, skills and built-in tools, and API keys are removed from the
+  environment so it uses the subscription login. There is a chat panel tab next
+  to the inspector. It was verified end to end with one real prompt (it changed
+  app2's servers, ran the model and reported utilization). There are 138 tests.
+- A bug found on the way and fixed: reloading a Python behavior file shadowed
+  the old class and broke snapshots and forks. Module names are now versioned
+  by file mtime.
+- Next: M8. Reading other projects' source: registered read-only source
+  directories, Read/Grep/Glob limited to them, an extract-behavior workflow,
+  proposals shown as pending changes, and links back to the source.
 
 ## Open questions
 

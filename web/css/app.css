@@ -173,3 +173,38 @@ details.lib[open] > summary::before { transform: rotate(90deg); }
   background: #0b0e13ee; border: 1px solid var(--line); font: 11.5px var(--mono); color: var(--text);
 }
 .rs-tip-head { color: var(--muted); margin-bottom: 3px; }
+
+/* inspector / agent tabs */
+.inspector { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.tabs button { flex: 1; border: 0; border-radius: 0; background: none; color: var(--muted); padding: 9px; font-weight: 600; }
+.tabs button.on { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.pane { flex: 1; overflow-y: auto; padding: 12px; min-height: 0; }
+#agent.pane { display: flex; flex-direction: column; padding: 0; }
+#agent.pane.hidden { display: none; }
+
+/* agent chat */
+.ag-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.ag-status { color: var(--muted); font-size: 11.5px; }
+.ag-log { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.ag-msg { line-height: 1.45; overflow-wrap: anywhere; }
+.ag-user { align-self: flex-end; max-width: 88%; background: #2a2312; border: 1px solid #4a3d22; padding: 7px 10px; border-radius: 10px 10px 2px 10px; }
+.ag-bot ul { margin: 4px 0; padding-left: 18px; }
+.ag-bot code, .ag-bot pre { font: 11.5px var(--mono); background: var(--panel-2); border-radius: 4px; }
+.ag-bot code { padding: 0 4px; }
+.ag-bot pre { padding: 6px 8px; overflow-x: auto; }
+.ag-tool { font-size: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); }
+.ag-tool summary { padding: 5px 8px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.ag-tool summary b { color: var(--text); font-weight: 600; }
+.ag-tool summary i { width: 14px; color: var(--ok); }
+.ag-tool.running summary i { color: var(--accent); }
+.ag-tool.failed summary i { color: var(--bad); }
+.ag-tool pre { margin: 0; padding: 6px 8px; font: 11px var(--mono); white-space: pre-wrap; border-top: 1px solid var(--line); color: var(--muted); max-height: 220px; overflow: auto; }
+.ag-thinking { color: var(--muted); font-style: italic; font-size: 12px; }
+.ag-done { color: #5f6b7d; font-size: 11px; text-align: right; }
+.ag-error { color: var(--bad); font-size: 12px; }
+.ag-suggest { display: flex; flex-direction: column; gap: 6px; }
+.ag-suggest button { text-align: left; font-size: 12px; color: var(--text); }
+.ag-compose { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--line); }
+.ag-compose textarea { flex: 1; resize: none; font: 12.5px/1.4 var(--sans); color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; }
+.ag-compose button { align-self: flex-end; }

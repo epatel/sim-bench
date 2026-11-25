@@ -2,7 +2,7 @@
 
 ## About this project
 
-A local workbench that runs a discrete-event simulation of entities, messages and events in a Python server, edited and watched through a browser canvas. Models can be refined from high-level to low-level where needed, and branched for "what if" scenarios. A Claude agent (Claude Agent SDK on the subscription login) will drive the model and derive behavior from other projects' source code. Milestones M1 (kernel), M2 (server and canvas), M3 (libraries and templates), M4 (composites and calibration), M5 (state machines and Python behaviors) and M6 (scenarios, batches and what-if) are done. The agent (M7, M8) is planned.
+A local workbench that runs a discrete-event simulation of entities, messages and events in a Python server, edited and watched through a browser canvas. Models can be refined from high-level to low-level where needed, and branched for "what if" scenarios. A Claude agent (Claude Agent SDK on the subscription login) will drive the model and derive behavior from other projects' source code. Milestones M1 (kernel), M2 (server and canvas), M3 (libraries and templates), M4 (composites and calibration), M5 (state machines and Python behaviors), M6 (scenarios, batches and what-if) and M7 (the in-app agent) are done. M8 (reading other projects' source) is planned.
 
 @project-plan.md
 
@@ -26,6 +26,7 @@ Domains
 - [composites](cards/composites.md) — when changing groups, abstract/expanded modes, `flatten`, boundary probes or calibration
 - [behaviors](cards/behaviors.md) — when writing an entity with custom logic (state machine or Python behavior), or changing the expression language
 - [scenarios](cards/scenarios.md) — when changing scenario patches, batch runs and statistics, the what-if fork, the results store or the results drawer
+- [agent](cards/agent.md) — when changing the in-app agent: its tools, prompt, isolation, authentication or the chat panel
 
 Decisions
 - [standing-defaults](cards/standing-defaults.md) — when adding a Python dependency or the first SQLite table (venv, migrations)
