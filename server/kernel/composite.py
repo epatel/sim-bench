@@ -210,40 +210,6 @@ class GroupProbe:
         }
 
 
-def suggest_abstract(probe_summary: dict, now: float, seed: int) -> dict:
-    """An abstract stand-in that reproduces the measured boundary behavior.
-
-    A ``delay`` with lognormal residence (unlimited concurrency) and the measured
-    loss as ``error_rate``. It is only valid near the measured arrival rate:
-    it does not know about the group's capacity, so it won't saturate.
-    """
-    r = probe_summary["residence"]
-    if not r.get("count"):
-        raise CompositeError("no message crossed the group boundary; run longer or check wiring")
-    mean, std = r["mean"], r["std"]
-    if std > 1e-12 and mean > 0:
-        delay = {"dist": "lognormal", "mean": mean, "std": std}
-    else:
-        delay = mean
-    params: dict = {"delay": delay}
-    if probe_summary["loss"] > 0:
-        params["error_rate"] = probe_summary["loss"]
-    return {
-        "type": "delay",
-        "params": params,
-        "calibration": {
-            "measured_until": now,
-            "seed": seed,
-            "samples": r["count"],
-            "arrival_rate": probe_summary["arrival_rate"],
-            "throughput": probe_summary["throughput"],
-            "residence_p95": r.get("p95"),
-            "loss": probe_summary["loss"],
-            "note": "valid near the measured arrival rate; the stand-in has no capacity limit",
-        },
-    }
-
-
 __all__ = [
     "Boundary",
     "CompositeError",
@@ -251,5 +217,4 @@ __all__ = [
     "GroupSpec",
     "check_groups",
     "flatten",
-    "suggest_abstract",
 ]

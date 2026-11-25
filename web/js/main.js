@@ -557,24 +557,40 @@ function abstractEditor(g) {
     const cal = g.abstract.calibration;
     if (cal) {
       const t = el("table", { class: "metrics" });
-      t.append(
-        row("calibrated at", `t=${fmt(cal.measured_until)}, seed ${cal.seed}`),
-        row("samples", fmt(cal.samples)),
-        row("arrival rate", fmt(cal.arrival_rate)),
-        row("residence p95", fmt(cal.residence_p95)),
-        row("loss", fmt(cal.loss)),
-      );
+      t.append(...calibrationRows(cal));
       box.append(t, el("p", { class: "sub" }, cal.note));
     }
   }
   return box;
 }
 
+function calibrationRows(cal) {
+  const rows = [
+    row("calibrated at", `t=${fmt(cal.measured_until)}, seed ${cal.seed}`),
+    row("samples", fmt(cal.samples)),
+    row("arrival rate", fmt(cal.arrival_rate)),
+    row("residence mean", fmt(cal.residence_mean)),
+    row("residence p95", fmt(cal.residence_p95)),
+    row("loss", fmt(cal.loss)),
+  ];
+  if (cal.capacity != null) {
+    rows.push(
+      row("capacity", `${fmt(cal.capacity)}/s`),
+      row("bottleneck", `${cal.bottleneck} (${fmt(cal.bottleneck_utilization * 100)}% busy)`),
+    );
+    if (cal.predicted_residence != null) rows.push(row("fitted residence", fmt(cal.predicted_residence)));
+  }
+  return rows;
+}
+
+const STAND_IN_HELP = "server: saturates at the group's capacity; delay: latency at this load only";
+
 function calibrationPanel(g) {
   const box = el("div");
   box.append(el("h2", {}, "Calibrate"));
-  const opts = { until: 2000 };
+  const opts = { until: 2000, kind: "auto" };
   box.append(paramField(opts, "until", { type: "float", default: 2000, help: "simulated time to measure" }, { silent: true }));
+  box.append(paramField(opts, "kind", { type: "enum", options: ["auto", "server", "delay"], default: "auto", help: STAND_IN_HELP }, { silent: true }));
   const out = el("p", { class: "sub" });
   const go = button("fa-ruler-combined", "Calibrate from expanded run", () => runCalibration(g, opts, go, out));
   const actions = el("div", { class: "row-actions" });
@@ -595,11 +611,15 @@ async function runCalibration(g, opts, go, out) {
   go.disabled = true;
   out.textContent = "Running…";
   try {
-    const res = await api.calibrate(state.model, g.id, opts.until ?? 2000, Number($("seed").value) || 0);
+    const res = await api.calibrate(state.model, g.id, {
+      until: opts.until ?? 2000, seed: Number($("seed").value) || 0, kind: opts.kind,
+    });
     g.abstract = res.abstract;
     changed();
     const early = res.truncated ? " (stopped early: event cap)" : "";
-    showBanner(`Calibrated ${g.id}: mean residence ${fmt(res.probe.residence.mean)} over ${fmt(res.probe.exited)} messages${early}`, "info");
+    const cap = res.abstract.calibration.capacity;
+    const limit = cap != null ? `, capacity ${fmt(cap)}/s` : ", no capacity limit";
+    showBanner(`Calibrated ${g.id} as ${res.abstract.type}: mean residence ${fmt(res.probe.residence.mean)} over ${fmt(res.probe.exited)} messages${limit}${early}`, "info");
   } catch (e) {
     out.textContent = e.message;
     go.disabled = false;

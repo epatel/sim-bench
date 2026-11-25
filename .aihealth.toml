@@ -1,0 +1,7 @@
+# aihealth settings for sim-bench (see `aihealth config`).
+
+[weights]
+# Ids (entity, group, port refs) are plain strings by design: models are YAML/JSON
+# that the browser, the agent and the kernel all exchange. Primitive Obsession
+# flags that convention everywhere, so it is turned off.
+primitive_obsession = 0

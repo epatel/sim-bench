@@ -2,7 +2,7 @@
 
 ## About this project
 
-A local workbench that runs a discrete-event simulation of entities, messages and events in a Python server, edited and watched through a browser canvas. Models can be refined from high-level to low-level where needed, and branched for "what if" scenarios. A Claude agent (Claude Agent SDK on the subscription login) will drive the model and derive behavior from other projects' source code. Milestones M1 (kernel), M2 (server and canvas), M3 (libraries and templates), M4 (composites and calibration), M5 (state machines and Python behaviors), M6 (scenarios, batches and what-if), M7 (the in-app agent) and M8 (models from other projects' source) are done.
+A local workbench that runs a discrete-event simulation of entities, messages and events in a Python server, edited and watched through a browser canvas. Models can be refined from high-level to low-level where needed, and branched for "what if" scenarios. A Claude agent (Claude Agent SDK on the subscription login) will drive the model and derive behavior from other projects' source code. Milestones M1 (kernel), M2 (server and canvas), M3 (libraries and templates), M4 (composites and calibration), M5 (state machines and Python behaviors), M6 (scenarios, batches and what-if), M7 (the in-app agent) M8 (models from other projects' source) and M9 (capacity-aware calibration) are done.
 
 @project-plan.md
 
@@ -47,4 +47,5 @@ When a commit adds non-obvious logic or settles an architecture choice, update o
 
 - Before committing, run `aihealth delta` and fix new or worsened smells it reports in code you touched (exit code 1 = health degraded).
 - `aihealth scan .` gives an overview of the codebase.
+- `.aihealth.toml` holds project settings (`aihealth config` lists every key). Primitive Obsession is turned off there (weight 0), because plain string ids are the model format's convention.
 - aihealth is a global install (on PATH), pinned to v0.4.0: `uv tool install "git+https://github.com/epatel/ai-health@033d1867fe514867d944d9387ee72db0188eed47"  # v0.4.0`. The hooks and the `.mcp.json` server do nothing until it is installed.

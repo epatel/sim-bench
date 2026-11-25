@@ -29,6 +29,7 @@ sequenceDiagram
 get_model, list_types, add_entity, update_entity, remove_entity, connect, update_link, disconnect, replace_model, undo, insert_template, set_group, calibrate_group, define_type, set_scenario, run, run_batch, list_sources, propose_changes. Reading other projects (Read/Grep/Glob, proposals) is covered in the sources card.
 
 - Tool results are short text: `brief()` gives the key numbers per entity, and `compare()` gives mean ± CI per scenario. Simulations run in a worker thread.
+- `calibrate_group` takes `kind` (auto, server, delay). Its result text reports the capacity and the bottleneck when it fits a server stand-in.
 - `define_type` writes **YAML only**, to `libraries/<lib>/types/<name>.yaml`. Names must match `[a-z][a-z0-9-]*`. The library is reloaded after writing, and the file is restored if the new type breaks it. The agent has no way to write Python behaviors, and the system prompt tells it to ask the user instead.
 - Adding a tool: write a `make_<name>(env)` factory (use `guarded(...)`, and set `changes=True` if it edits the model), then add it to both `TOOL_FACTORIES` and `TOOL_NAMES`. `test_tool_names_match_factories` checks the two lists agree.
 

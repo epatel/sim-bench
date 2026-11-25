@@ -20,8 +20,9 @@ from typing import Any
 import yaml
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from ..kernel import Library, LibraryError, ModelError, ModelSpec, Simulation, suggest_abstract
+from ..kernel import Library, LibraryError, ModelError, ModelSpec, Simulation, run_calibration
 from ..kernel import scenario as scen
+from ..kernel.calibrate import Request as CalibrationRequest
 from ..kernel.yamlio import load_yaml
 from ..sources import SourceRegistry
 from .workspace import ToolError, Workspace, link_key
@@ -311,29 +312,44 @@ def make_set_group(env: Env):
 def make_calibrate_group(env: Env):
     async def body(a):
         model = ModelSpec.model_validate(env.workspace.model)
-        gid, until = a["group"], float(a.get("until", 1000))
-        groups = [
-            g.model_copy(update={"mode": "expanded"}) if g.id == gid else g for g in model.groups
-        ]
-        sim = Simulation(model.model_copy(update={"groups": groups}), seed=int(a.get("seed", 1)),
-                         library=env.load_library())  # fmt: skip
-        await asyncio.to_thread(sim.run, until, MAX_EVENTS)
-        probe = sim.summary()["groups"].get(gid)
-        if probe is None:
-            raise ToolError(f"group {gid!r} has no boundary to measure")
-        abstract = suggest_abstract(probe, sim.now, int(a.get("seed", 1)))
-        env.workspace.change(lambda m: env.workspace.group(m, gid).update({"abstract": abstract}))
-        r = probe["residence"]
-        stand_in = json.dumps(abstract["params"])
-        return (f"calibrated {gid}: residence mean {r['mean']:.4g} (p95 {r.get('p95', 0):.4g}), "
-                f"loss {probe['loss']:.3g}, arrival rate {probe['arrival_rate']:.4g}. "
-                f"Stand-in: {stand_in}. Valid near this load only.")  # fmt: skip
+        req = CalibrationRequest(a["group"], float(a.get("until", 1000)), int(a.get("seed", 1)),
+                                 a.get("kind", "auto"))  # fmt: skip
+        _, m, abstract = await asyncio.to_thread(
+            run_calibration, model, req, env.load_library(), MAX_EVENTS
+        )
+        env.workspace.change(
+            lambda md: env.workspace.group(md, req.group).update({"abstract": abstract})
+        )
+        return calibration_text(req.group, m.probe, abstract)
 
-    schema = obj({"group": STR, "until": NUM, "seed": {"type": "integer"}}, ("group",))
+    schema = obj(
+        {"group": STR, "until": NUM, "seed": {"type": "integer"},
+         "kind": {"enum": ["auto", "server", "delay"]}},
+        ("group",),
+    )  # fmt: skip
     desc = (
-        "Run the model with a group expanded and fit its abstract stand-in from the measurements."
+        "Run the model with a group expanded and fit its abstract stand-in from the measurements. "
+        "kind 'server' (default when the group has servers) saturates at the group's measured "
+        "capacity; 'delay' reproduces latency at this load only."
     )
     return tool("calibrate_group", desc, schema)(guarded(env, body, changes=True))
+
+
+def calibration_text(gid: str, probe: dict, abstract: dict) -> str:
+    r, cal = probe["residence"], abstract["calibration"]
+    head = (f"calibrated {gid}: residence mean {r['mean']:.4g} (p95 {r.get('p95') or 0:.4g}), "
+            f"loss {probe['loss']:.3g}, arrival rate {probe['arrival_rate']:.4g}. ")  # fmt: skip
+    stand_in = f"Stand-in {abstract['type']}: {json.dumps(abstract['params'])}. "
+    if abstract["type"] == "server":
+        return (
+            head
+            + stand_in
+            + (
+                f"Capacity {cal['capacity']:.4g}/s (bottleneck {cal['bottleneck']}, "
+                f"{cal['bottleneck_utilization']:.0%} busy). {cal['note']}."
+            )
+        )
+    return head + stand_in + "No capacity limit: valid near this load only."
 
 
 # --- types ------------------------------------------------------------------------------------

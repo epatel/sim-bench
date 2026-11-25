@@ -201,8 +201,12 @@ def test_calibrate_proposes_a_stand_in(client):
     assert r.status_code == 200, r.text
     res = r.json()
     assert res["probe"]["exited"] > 500  # it ran expanded, despite the model saying abstract
-    assert res["abstract"]["type"] == "delay"
+    assert res["abstract"]["type"] == "server"  # the pool has servers, so it gets a capacity
     assert res["abstract"]["calibration"]["arrival_rate"] == pytest.approx(0.5, rel=0.1)
+    body = {"model": model, "group": "p", "until": 2000, "seed": 1, "kind": "delay"}
+    assert client.post("/api/calibrate", json=body).json()["abstract"]["type"] == "delay"
+    body["kind"] = "fast"
+    assert client.post("/api/calibrate", json=body).status_code == 422
     bad = client.post("/api/calibrate", json={"model": model, "group": "zzz"})
     assert bad.status_code == 422
 

@@ -186,6 +186,9 @@ requirements.txt   (.venv, gitignored)
   subscription-only auth check.
 - [x] **M8 Source reading.** Registered source dirs, read-only permissions, the
   extract-behavior skill, pending-diff accept or reject, and provenance links.
+- [x] **M9 Capacity-aware calibration.** A `server` stand-in fitted from the
+  bottleneck's utilization (capacity) and an M/M/c match of mean residence, so
+  abstract groups saturate where the expanded group does.
 
 ## Decisions
 
@@ -233,6 +236,11 @@ requirements.txt   (.venv, gitignored)
 - 2026-11-25: code-health uses the global aihealth install
   (`form: existing`) at the user's request. The pin and the install command are
   in `CLAUDE.md`.
+- 2026-11-25: Calibration fits a `server` stand-in by default: capacity from
+  the bottleneck member's utilization in one run, c from an M/M/c match of the
+  mean residence. The `delay` stand-in remains for groups without servers.
+- 2026-11-25: aihealth's Primitive Obsession is turned off in `.aihealth.toml`:
+  ids are plain strings across YAML models, the browser and the agent.
 - 2026-11-25: Use the agent through `claude-agent-sdk` on the subscription login,
   with `ANTHROPIC_API_KEY` stripped from its environment.
 
@@ -305,17 +313,21 @@ requirements.txt   (.venv, gitignored)
   a 6-entity model with correct line references and stated assumptions, and it
   was accepted. The model ran and showed the worker pool near saturation.
   `main.js` was split into dom/proposal/provenance modules. There are 163 tests.
-- All planned milestones are done. Candidates for next: nested composites, a
-  capacity-aware calibrated stand-in, a refactor to value types for ids, CI,
-  and project-level library pinning.
+- M9 is done. `server/kernel/calibrate.py` holds calibration (moved out of
+  `composite.py`). The default stand-in is a `server` whose capacity and mean
+  residence match the expanded group. In tests, it matches latency within 12%
+  at the calibration load and throughput within 8% at 1.35x the group's
+  capacity, where the `delay` stand-in passes all the traffic. The inspector
+  has a stand-in kind selector and shows capacity and bottleneck. Verified in
+  Chrome on `composites.yaml` (pool: capacity 99.9/s, fitted residence
+  0.1201 vs measured 0.1198). There are 168 tests.
+- Candidates for next: nested composites, a refactor to value types for ids,
+  CI, and project-level library pinning.
 
 ## Open questions
 
 - Should composites nest (a group inside a group), and how should a nested
   boundary map onto its parent's boundary?
-- Should calibration also fit a capacity-aware stand-in (`server` with c and a
-  service time), so the stand-in saturates the way the real group does?
-
 - Confirm that Claude subscription terms cover this personal, local use of the
   Agent SDK, and pin a minimum `claude` CLI and SDK version.
 - Should tier-3 Python behaviors run in a subprocess for isolation, or in-process

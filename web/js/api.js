@@ -20,7 +20,8 @@ export const api = {
   getModel: (path) => request("GET", `/api/models/${path}`),
   saveModel: (path, model) => request("PUT", `/api/models/${path}`, model),
   validate: (model) => request("POST", "/api/validate", model),
-  calibrate: (model, group, until, seed) => request("POST", "/api/calibrate", { model, group, until, seed }),
+  // opts: { until, seed, kind }
+  calibrate: (model, group, opts) => request("POST", "/api/calibrate", { model, group, ...opts }),
   startBatch: (body) => request("POST", "/api/batches", body),
   batches: () => request("GET", "/api/batches"),
   batch: (id, metric) => request("GET", `/api/batches/${id}${metric ? `?metric=${encodeURIComponent(metric)}` : ""}`),

@@ -38,9 +38,10 @@ from .kernel import (
     ModelError,
     ModelSpec,
     Simulation,
-    suggest_abstract,
+    run_calibration,
 )
 from .kernel import scenario as scen
+from .kernel.calibrate import Request as CalibrationRequest
 from .kernel.yamlio import load_yaml
 from .sources import SourceError, SourceRegistry
 from .storage import RunStore
@@ -232,34 +233,25 @@ CALIBRATE_MAX_EVENTS = 2_000_000
 def calibrate(body: dict[str, Any]) -> dict[str, Any]:
     """Run the model with one group expanded and propose an abstract stand-in for it.
 
-    Body: {"model": {...}, "group": id, "until": float, "seed": int}
+    Body: {"model": {...}, "group": id, "until": float, "seed": int, "kind": auto|server|delay}
     """
-    gid = body.get("group")
-    until = float(body.get("until", 1000.0))
-    seed = int(body.get("seed", 0))
+    req = CalibrationRequest(
+        group=body.get("group"),
+        until=float(body.get("until", 1000.0)),
+        seed=int(body.get("seed", 0)),
+        kind=body.get("kind", "auto"),
+    )
     try:
-        model = ModelSpec.model_validate(body.get("model"))
-        group = next((g for g in model.groups if g.id == gid), None)
-        if group is None:
-            raise ModelError(f"no group {gid!r}")
-        if not group.inputs or not group.outputs:
-            raise ModelError(f"group {gid!r} needs boundary inputs and outputs to calibrate")
-        groups = [
-            g.model_copy(update={"mode": "expanded"}) if g.id == gid else g for g in model.groups
-        ]
-        _, sim = check_model(model.model_copy(update={"groups": groups}).model_dump(by_alias=True))
-        sim.run(until=until, max_events=CALIBRATE_MAX_EVENTS)
-        summary = sim.summary()
-        probe = summary["groups"][gid]
-        abstract = suggest_abstract(probe, sim.now, seed)
+        model, _ = check_model(body.get("model"))
+        sim, m, abstract = run_calibration(model, req, load_library(), CALIBRATE_MAX_EVENTS)
     except (ModelError, ValidationError, CompositeError) as e:
         raise HTTPException(422, str(e)) from e
     return {
-        "group": gid,
+        "group": req.group,
         "measured_until": sim.now,
         "events": sim.events_processed,
-        "truncated": sim.now < until,
-        "probe": probe,
+        "truncated": sim.now < req.until,
+        "probe": m.probe,
         "abstract": abstract,
     }
 
