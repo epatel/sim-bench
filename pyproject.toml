@@ -9,6 +9,8 @@ pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
+# Markdown code blocks are documentation (cards/ holds copied, hash-tracked files).
+extend-exclude = ["*.md"]
 target-version = "py312"
 
 [tool.ruff.lint]
