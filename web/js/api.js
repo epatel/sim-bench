@@ -13,6 +13,9 @@ async function request(method, url, body) {
 
 export const api = {
   types: () => request("GET", "/api/types"),
+  libraries: () => request("GET", "/api/libraries"),
+  templates: () => request("GET", "/api/templates"),
+  instantiate: (id, args, prefix) => request("POST", `/api/templates/${id}/instantiate`, { args, prefix }),
   models: () => request("GET", "/api/models"),
   getModel: (path) => request("GET", `/api/models/${path}`),
   saveModel: (path, model) => request("PUT", `/api/models/${path}`, model),

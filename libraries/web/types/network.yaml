@@ -1,0 +1,6 @@
+name: network
+extends: delay
+description: A network hop with jittery latency and no queueing.
+icon: fa-network-wired
+params:
+  delay: {dist: normal, mean: 0.03, std: 0.01}

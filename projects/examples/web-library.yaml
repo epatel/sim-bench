@@ -1,0 +1,21 @@
+name: web-library
+description: The web-backend example rebuilt from the web library - client, network, a load-balanced pool and a cached database.
+entities:
+  - {id: users, type: web/client, pos: [0, 120]}
+  - {id: net, type: web/network, pos: [200, 120]}
+  - {id: lb, type: web/load-balancer, pos: [400, 120]}
+  - {id: app1, type: web/app-server, pos: [600, 40]}
+  - {id: app2, type: web/app-server, pos: [600, 200], params: {error_rate: 0.01}}
+  - {id: cache, type: web/cache, pos: [800, 120]}
+  - {id: db, type: web/database, pos: [1000, 200]}
+  - {id: done, type: web/response, pos: [1200, 120]}
+connections:
+  - {from: users.out, to: net.in}
+  - {from: net.out, to: lb.in}
+  - {from: lb.a, to: app1.in, latency: 0.001}
+  - {from: lb.b, to: app2.in, latency: 0.001}
+  - {from: app1.out, to: cache.in, latency: 0.001}
+  - {from: app2.out, to: cache.in, latency: 0.001}
+  - {from: cache.hit, to: done.in, latency: 0.002}
+  - {from: cache.miss, to: db.in, latency: 0.002}
+  - {from: db.out, to: done.in, latency: 0.001}

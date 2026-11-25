@@ -2,7 +2,7 @@
 
 ## About this project
 
-A local workbench that runs a discrete-event simulation of entities, messages and events in a Python server, edited and watched through a browser canvas. Models can be refined from high-level to low-level where needed, and branched for "what if" scenarios. A Claude agent (Claude Agent SDK on the subscription login) will drive the model and derive behavior from other projects' source code. Milestones M1 (kernel) and M2 (server and canvas) are done. Libraries, resolution, scenarios and the agent are planned.
+A local workbench that runs a discrete-event simulation of entities, messages and events in a Python server, edited and watched through a browser canvas. Models can be refined from high-level to low-level where needed, and branched for "what if" scenarios. A Claude agent (Claude Agent SDK on the subscription login) will drive the model and derive behavior from other projects' source code. Milestones M1 (kernel), M2 (server and canvas) and M3 (libraries and templates) are done. Resolution, behaviors, scenarios and the agent are planned.
 
 @project-plan.md
 
@@ -22,6 +22,7 @@ Architecture
 Domains
 - [sim-kernel](cards/sim-kernel.md) — when changing scheduling, behaviors, links, metrics, snapshots or the kernel CLI
 - [server-and-canvas](cards/server-and-canvas.md) — when changing the REST/WebSocket protocol, the canvas editor, the inspector or live-run streaming
+- [libraries](cards/libraries.md) — when adding or editing item types, templates or a library, or changing type resolution
 
 Decisions
 - [standing-defaults](cards/standing-defaults.md) — when adding a Python dependency or the first SQLite table (venv, migrations)

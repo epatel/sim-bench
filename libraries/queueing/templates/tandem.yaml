@@ -1,0 +1,15 @@
+name: tandem
+description: N servers in series (a tandem queue / Jackson line).
+icon: fa-layer-group
+params:
+  n: {type: int, default: 3, min: 1, help: number of stations}
+  service: {type: dist, default: {dist: exp, mean: 1.0}, help: service time at each station}
+entities:
+  - id: "q{i}"
+    repeat: n
+    type: queueing/mm-server
+    params: {service: "{service}"}
+connections:
+  - {from: "q{i}.out", to: "q{i+1}.in", repeat: n - 1}
+inputs: {in: q1.in}
+outputs: {out: "q{n}.out"}

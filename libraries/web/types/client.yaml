@@ -1,0 +1,7 @@
+name: client
+extends: source
+description: A population of clients sending requests (Poisson arrivals).
+icon: fa-users
+params:
+  interarrival: {dist: exp, mean: 0.05}
+  size: {dist: uniform, low: 1, high: 4}

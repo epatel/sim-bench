@@ -1,0 +1,6 @@
+name: poisson-source
+extends: source
+description: Poisson arrivals (exponential inter-arrival times, mean 1).
+icon: fa-people-line
+params:
+  interarrival: {dist: exp, mean: 1.0}

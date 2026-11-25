@@ -1,0 +1,6 @@
+name: mm-server
+extends: server
+description: Exponential service, c servers, unbounded queue (M/M/c).
+icon: fa-cash-register
+params:
+  service: {dist: exp, mean: 1.0}

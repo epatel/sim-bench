@@ -1,0 +1,7 @@
+name: database
+extends: server
+description: A database with a connection pool and short, exponential query times.
+icon: fa-database
+params:
+  servers: 8
+  service: {dist: exp, mean: 0.02}

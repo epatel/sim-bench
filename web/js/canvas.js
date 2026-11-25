@@ -4,6 +4,8 @@ import { glyph, ICON_FONT } from "./icons.js";
 export const NODE_W = 136;
 export const NODE_H = 60;
 const PORT_R = 5;
+const GROUP_PAD = 18;
+const GROUP_HEADER = 22;
 const MAX_FLIGHTS = 3000;
 const MIN_FLIGHT_MS = 180; // zero-latency hops stay visible this long
 
@@ -101,6 +103,35 @@ export class Editor extends EventTarget {
     return null;
   }
 
+  // group name -> {x, y, w, h, members} framing its entities (header strip on top)
+  groups() {
+    const out = new Map();
+    for (const e of this.app.model.entities) {
+      if (!e.group) continue;
+      const g = out.get(e.group) || { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity, members: [] };
+      g.x0 = Math.min(g.x0, e.pos[0]);
+      g.y0 = Math.min(g.y0, e.pos[1]);
+      g.x1 = Math.max(g.x1, e.pos[0] + NODE_W);
+      g.y1 = Math.max(g.y1, e.pos[1] + NODE_H);
+      g.members.push(e);
+      out.set(e.group, g);
+    }
+    for (const g of out.values()) {
+      g.x = g.x0 - GROUP_PAD;
+      g.y = g.y0 - GROUP_PAD - GROUP_HEADER;
+      g.w = g.x1 - g.x0 + 2 * GROUP_PAD;
+      g.h = g.y1 - g.y0 + 2 * GROUP_PAD + GROUP_HEADER + 14; // room for badges
+    }
+    return out;
+  }
+
+  hitGroupHeader(p) {
+    for (const [name, g] of this.groups()) {
+      if (p.x >= g.x && p.x <= g.x + g.w && p.y >= g.y && p.y <= g.y + GROUP_HEADER) return { name, ...g };
+    }
+    return null;
+  }
+
   hitPort(p) {
     const r = (PORT_R + 5) / Math.min(1, this.view.scale);
     for (const e of this.app.model.entities) {
@@ -145,10 +176,12 @@ export class Editor extends EventTarget {
     cv.addEventListener("dragover", (ev) => ev.preventDefault());
     cv.addEventListener("drop", (ev) => {
       ev.preventDefault();
-      const kind = ev.dataTransfer.getData("text/x-sim-type");
-      if (!kind) return;
       const p = this.toWorld(ev);
-      this.app.addEntity(kind, [p.x - NODE_W / 2, p.y - NODE_H / 2]);
+      const pos = [p.x - NODE_W / 2, p.y - NODE_H / 2];
+      const kind = ev.dataTransfer.getData("text/x-sim-type");
+      const template = ev.dataTransfer.getData("text/x-sim-template");
+      if (kind) this.app.addEntity(kind, pos);
+      else if (template) this.app.insertTemplate(template, pos);
     });
   }
 
@@ -158,6 +191,17 @@ export class Editor extends EventTarget {
     const port = this.hitPort(p);
     if (port && port.isOut) {
       this.drag = { kind: "link", from: port, to: p };
+      return;
+    }
+    const header = this.hitGroupHeader(p);
+    if (header) {
+      this.select({ kind: "group", id: header.name });
+      this.drag = {
+        kind: "move-group",
+        members: header.members,
+        start: p,
+        origins: header.members.map((e) => [...e.pos]),
+      };
       return;
     }
     const ent = this.hitEntity(p);
@@ -190,6 +234,11 @@ export class Editor extends EventTarget {
     } else if (this.drag.kind === "move") {
       this.drag.entity.pos = [snap(p.x - this.drag.dx), snap(p.y - this.drag.dy)];
       this.drag.moved = true;
+    } else if (this.drag.kind === "move-group") {
+      const dx = snap(p.x - this.drag.start.x), dy = snap(p.y - this.drag.start.y);
+      this.drag.members.forEach((e, i) => {
+        e.pos = [this.drag.origins[i][0] + dx, this.drag.origins[i][1] + dy];
+      });
     } else if (this.drag.kind === "link") {
       this.drag.to = p;
       this.hoverPort = this.hitPort(p);
@@ -271,6 +320,7 @@ export class Editor extends EventTarget {
     this.drawGrid(W, H);
     ctx.setTransform(dpr * view.scale, 0, 0, dpr * view.scale, dpr * view.x, dpr * view.y);
 
+    this.drawGroups();
     const conns = new Map(this.app.model.connections.map((c) => [linkKey(c), c]));
     for (const conn of conns.values()) this.drawLink(conn);
     this.drawFlights(conns);
@@ -283,6 +333,28 @@ export class Editor extends EventTarget {
       ctx.lineWidth = 1.5;
       this.strokeBezier(this.drag.from, this.drag.to);
       ctx.setLineDash([]);
+    }
+  }
+
+  drawGroups() {
+    const { ctx } = this;
+    for (const [name, g] of this.groups()) {
+      const selected = this.selection?.kind === "group" && this.selection.id === name;
+      ctx.fillStyle = "rgba(245,177,61,0.035)";
+      ctx.strokeStyle = selected ? C.select : "#3a3222";
+      ctx.lineWidth = selected ? 1.8 : 1;
+      ctx.setLineDash(selected ? [] : [5, 4]);
+      roundRect(ctx, g.x, g.y, g.w, g.h, 12);
+      ctx.fill();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = selected ? C.select : "#a3894f";
+      ctx.font = '900 10px "Font Awesome 7 Free"';
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(glyph("fa-layer-group"), g.x + 10, g.y + GROUP_HEADER / 2 + 1);
+      ctx.font = "600 11px -apple-system, Segoe UI, sans-serif";
+      ctx.fillText(name, g.x + 26, g.y + GROUP_HEADER / 2 + 1);
     }
   }
 

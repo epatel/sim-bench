@@ -1,0 +1,8 @@
+name: app-server
+extends: server
+description: An application server with a worker pool and a bounded request queue.
+icon: fa-microchip
+params:
+  servers: 4
+  service: {dist: lognormal, mean: 0.12, std: 0.05}
+  queue_capacity: 50

@@ -174,7 +174,7 @@ requirements.txt   (.venv, gitignored)
 - [x] **M2 Server and canvas MVP.** FastAPI with REST for the model and a
   WebSocket for run streaming. Canvas to place items with FA icons, connect ports,
   edit parameters, and run, pause or step with animated messages.
-- [ ] **M3 Libraries and templates.** YAML type and library format, inheritance,
+- [x] **M3 Libraries and templates.** YAML type and library format, inheritance,
   palette UI, templates turned into composites, save and load projects.
 - [ ] **M4 Resolution.** Composites, abstract or expanded modes, drill-down UI,
   focus, and the calibration loop.
@@ -201,6 +201,9 @@ requirements.txt   (.venv, gitignored)
 - 2026-11-25: Every random draw uses a named stream seeded from (seed, name), so
   adding an entity doesn't change the draws of existing entities. This keeps
   what-if comparisons fair.
+- 2026-11-25: Templates expand into flat, prefixed entities tagged with
+  `group`, not nested sub-models. The kernel stays flat and simple. M4 adds
+  composites on top of groups rather than changing the kernel's entity model.
 - 2026-11-25: Use the agent through `claude-agent-sdk` on the subscription login,
   with `ANTHROPIC_API_KEY` stripped from its environment.
 
@@ -219,8 +222,16 @@ requirements.txt   (.venv, gitignored)
   add, port-to-port connecting, a schema-driven inspector, play/pause/step/reset,
   a speed control, animated messages, metric badges, and saving to `projects/`.
   It was verified in Chrome against `web-backend.yaml`. There are 29 tests.
-- Next: M3. Add YAML type libraries and templates, with inheritance and a
-  palette grouped by library.
+- M3 is done: `libraries/<lib>/{types,templates}/*.yaml` hold the shipped
+  `web` and `queueing` libraries. Types use `extends` chains with merged
+  defaults. Templates use `repeat`, `{expr}` and `$each`, and expressions are
+  restricted to `ast` arithmetic. Inserting a template creates a framed
+  `group`. The palette is grouped by library, and templates have an argument
+  form. There are 50 tests. Project-level library pinning was deferred, because
+  every library in `libraries/` is always loaded.
+- Next: M4. Turn groups into composites with boundary ports (the template's
+  `inputs` and `outputs`), abstract or expanded modes, drill-down, and the
+  calibration loop.
 
 ## Open questions
 

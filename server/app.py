@@ -1,7 +1,10 @@
-"""HTTP + WebSocket API for the workbench (milestone M2).
+"""HTTP + WebSocket API for the workbench (milestones M2-M3).
 
 REST:
-  GET  /api/types                 item types (behaviors) with ports and param schemas
+  GET  /api/types                 item types (built-in + libraries) with ports and param schemas
+  GET  /api/libraries             loaded libraries (name, description)
+  GET  /api/templates             templates with their parameters
+  POST /api/templates/{id}/instantiate   expand a template into entities + connections
   GET  /api/models                model files under projects/
   GET  /api/models/{path}         one model as JSON
   PUT  /api/models/{path}         validate and save a model as YAML
@@ -24,10 +27,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from .kernel import BEHAVIORS, ModelError, ModelSpec, Simulation
+from .kernel import Library, LibraryError, ModelError, ModelSpec, Simulation
 
 ROOT = Path(__file__).resolve().parent.parent
 PROJECTS = ROOT / "projects"
+LIBRARIES = ROOT / "libraries"
 WEB = ROOT / "web"
 
 app = FastAPI(title="Simulation Workbench")
@@ -58,10 +62,18 @@ def _round_pos(entity: dict[str, Any]) -> dict[str, Any]:
     return entity
 
 
-def check_model(data: Any) -> tuple[ModelSpec, Simulation]:
+def load_library() -> Library:
+    """Read libraries/ fresh on every call: it is small, and the agent edits it live."""
+    try:
+        return Library.load(LIBRARIES)
+    except LibraryError as e:
+        raise HTTPException(500, f"library error: {e}") from e
+
+
+def check_model(data: Any, library: Library | None = None) -> tuple[ModelSpec, Simulation]:
     try:
         model = ModelSpec.model_validate(data)
-        return model, Simulation(model)
+        return model, Simulation(model, library=library or load_library())
     except ValidationError as e:
         first = e.errors()[0]
         where = ".".join(str(p) for p in first["loc"])
@@ -70,21 +82,59 @@ def check_model(data: Any) -> tuple[ModelSpec, Simulation]:
 
 @app.get("/api/types")
 def list_types() -> list[dict[str, Any]]:
+    lib = load_library()
     out = []
-    for kind, cls in BEHAVIORS.items():
-        defaults = {k: v.get("default") for k, v in cls.params_schema.items()}
-        ins, outs = cls.ports(defaults)
+    for tid in lib.all_type_ids():
+        r = lib.resolve(tid)
+        ins, outs = r.behavior.ports(r.defaults)
+        schema = {
+            name: {**meta, "default": r.defaults.get(name)}
+            for name, meta in r.behavior.params_schema.items()
+        }
         out.append(
             {
-                "kind": kind,
-                "description": cls.description,
-                "icon": cls.icon,
+                "kind": tid,
+                "base": r.chain[-1],
+                "chain": r.chain,
+                "library": r.library,
+                "description": r.description,
+                "icon": r.icon,
                 "inputs": ins,
                 "outputs": outs,
-                "params": cls.params_schema,
+                "params": schema,
             }
         )
     return out
+
+
+@app.get("/api/libraries")
+def list_libraries() -> list[dict[str, Any]]:
+    return list(load_library().libraries.values())
+
+
+@app.get("/api/templates")
+def list_templates() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": t.id,
+            "library": t.library,
+            "description": t.description,
+            "icon": t.icon,
+            "params": t.params,
+            "inputs": t.inputs,
+            "outputs": t.outputs,
+        }
+        for t in load_library().templates.values()
+    ]
+
+
+@app.post("/api/templates/{template_id:path}/instantiate")
+def instantiate(template_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    lib = load_library()
+    try:
+        return lib.instantiate(template_id, body.get("args") or {}, body.get("prefix"))
+    except LibraryError as e:
+        raise HTTPException(422, str(e)) from e
 
 
 @app.get("/api/models")
@@ -156,6 +206,7 @@ class RunSession:
     def __init__(self, ws: WebSocket) -> None:
         self.ws = ws
         self.model: ModelSpec | None = None
+        self.library: Library | None = None
         self.seed = 0
         self.sim: Simulation | None = None
         self.playing = False
@@ -172,7 +223,7 @@ class RunSession:
 
     def _build(self) -> None:
         assert self.model is not None
-        self.sim = Simulation(self.model, seed=self.seed)
+        self.sim = Simulation(self.model, seed=self.seed, library=self.library)
         self.sim.add_listener(self._collect)
         self.records.clear()
         self.playing = False
@@ -181,9 +232,13 @@ class RunSession:
         cmd = msg.get("cmd")
         if cmd == "load":
             try:
-                self.model, sim = check_model(msg.get("model"))
+                self.library = load_library()  # the run keeps the types it was loaded with
+                self.model, sim = check_model(msg.get("model"), self.library)
             except ModelError as e:
                 await self.ws.send_json({"type": "error", "message": str(e)})
+                return
+            except HTTPException as e:
+                await self.ws.send_json({"type": "error", "message": e.detail})
                 return
             self.seed = int(msg.get("seed", 0))
             self._build()

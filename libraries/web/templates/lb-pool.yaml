@@ -1,0 +1,21 @@
+name: lb-pool
+description: A round-robin load balancer in front of N identical servers, merged into one output.
+icon: fa-layer-group
+params:
+  n: {type: int, default: 3, min: 1, help: number of servers}
+  server: {type: string, default: web/app-server, help: item type of each server}
+entities:
+  - id: lb
+    type: web/load-balancer
+    params:
+      routes: {$each: n, key: "s{i}", value: 1}
+  - id: "s{i}"
+    repeat: n
+    type: "{server}"
+  - id: join
+    type: delay
+connections:
+  - {from: "lb.s{i}", to: "s{i}.in", repeat: n}
+  - {from: "s{i}.out", to: join.in, repeat: n}
+inputs: {in: lb.in}
+outputs: {out: join.out}

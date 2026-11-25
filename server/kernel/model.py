@@ -37,6 +37,8 @@ class EntitySpec(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
     # Canvas position; ignored by the kernel.
     pos: tuple[float, float] | None = None
+    # Template instance this entity came from (drawn as a frame; a composite from M4).
+    group: str | None = None
 
     @field_validator("id")
     @classmethod

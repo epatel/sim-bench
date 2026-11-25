@@ -17,6 +17,8 @@ const state = {
   model: emptyModel(),
   path: "untitled.yaml",
   types: {},
+  templates: {},
+  libraries: [],
   ports: {},
   summary: null,
   runLoaded: false,
@@ -50,6 +52,10 @@ const app = {
     changed();
   },
 
+  insertTemplate(id, pos) {
+    insertTemplate(id, {}, null, { x: pos[0] + NODE_W / 2, y: pos[1] + NODE_H / 2 });
+  },
+
   connect(from, to) {
     const conns = state.model.connections.filter((c) => c.from !== from); // one link per output
     conns.push({ from, to });
@@ -60,13 +66,18 @@ const app = {
 
   deleteSelection() {
     const sel = editor.selection;
-    if (!sel) return;
-    if (sel.kind === "entity") {
-      state.model.entities = state.model.entities.filter((e) => e.id !== sel.id);
-      state.model.connections = state.model.connections.filter(
-        (c) => splitRef(c.from)[0] !== sel.id && splitRef(c.to)[0] !== sel.id,
+    if (!sel || sel.kind === "template") return;
+    if (sel.kind === "entity" || sel.kind === "group") {
+      const gone = new Set(
+        state.model.entities
+          .filter((e) => (sel.kind === "entity" ? e.id === sel.id : e.group === sel.id))
+          .map((e) => e.id),
       );
-    } else {
+      state.model.entities = state.model.entities.filter((e) => !gone.has(e.id));
+      state.model.connections = state.model.connections.filter(
+        (c) => !gone.has(splitRef(c.from)[0]) && !gone.has(splitRef(c.to)[0]),
+      );
+    } else if (sel.kind === "link") {
       state.model.connections = state.model.connections.filter((c) => linkKey(c) !== sel.id);
     }
     editor.select(null);
@@ -80,6 +91,10 @@ const run = new RunClient();
 // --- model edits and validation --------------------------------------------------
 
 let validateTimer = null;
+
+function changedModel(opts) {
+  changed(opts);
+}
 
 function changed({ structural = true } = {}) {
   if (state.runLoaded) {
@@ -130,8 +145,14 @@ function renameEntity(oldId, newId) {
 
 // Place entities that have no position: columns by distance from the sources.
 function layout(model) {
-  const missing = model.entities.filter((e) => !e.pos);
-  if (!missing.length) return;
+  if (model.entities.some((e) => !e.pos)) layoutFragment(model.entities, model.connections, null);
+}
+
+// Lay out `entities` lacking pos in columns, starting at `origin` (or 0,0).
+function layoutFragment(entities, connections, origin) {
+  const model = { entities, connections };
+  const ox = origin ? origin.x - NODE_W / 2 : 0;
+  const oy = origin ? origin.y - NODE_H / 2 : 0;
   const next = new Map();
   for (const c of model.connections) {
     const a = splitRef(c.from)[0], b = splitRef(c.to)[0];
@@ -151,13 +172,19 @@ function layout(model) {
       }
     }
   }
+  const todo = model.entities.filter((e) => !e.pos);
+  const perColumn = new Map();
+  for (const e of todo) {
+    const d = depth.get(e.id) ?? 0;
+    perColumn.set(d, (perColumn.get(d) || 0) + 1);
+  }
   const rows = new Map();
-  for (const e of model.entities) {
-    if (e.pos) continue;
+  for (const e of todo) {
     const d = depth.get(e.id) ?? 0;
     const r = rows.get(d) || 0;
     rows.set(d, r + 1);
-    e.pos = [d * (NODE_W + 90), r * (NODE_H + 60)];
+    const centered = r - (perColumn.get(d) - 1) / 2; // center each column on the origin row
+    e.pos = [Math.round(ox + d * (NODE_W + 90)), Math.round(oy + centered * (NODE_H + 60))];
   }
 }
 
@@ -186,21 +213,77 @@ function setModel(model, path) {
 function renderPalette() {
   const root = $("palette");
   root.innerHTML = "";
-  for (const t of Object.values(state.types)) {
-    const card = el("div", { class: "type-card", draggable: "true", title: t.description });
-    card.append(el("i", { class: `fa-solid ${t.icon}` }));
-    const txt = el("div");
-    txt.append(el("div", { class: "k" }, t.kind), el("div", { class: "d" }, t.description));
-    card.append(txt);
-    card.addEventListener("dragstart", (ev) => ev.dataTransfer.setData("text/x-sim-type", t.kind));
-    card.addEventListener("click", () => {
-      const r = $("canvas").getBoundingClientRect();
-      const p = editor.toWorld({ clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 });
-      const n = state.model.entities.length;
-      app.addEntity(t.kind, [p.x - NODE_W / 2 + (n % 5) * 16, p.y - NODE_H / 2 + (n % 5) * 16]);
-    });
-    root.append(card);
+  const sections = [{ name: "", title: "Built-in", description: "Generic behaviors every library builds on." }];
+  for (const lib of state.libraries) sections.push({ name: lib.name, title: lib.name, description: lib.description });
+  for (const sec of sections) {
+    const types = Object.values(state.types).filter((t) => t.library === sec.name);
+    const templates = Object.values(state.templates).filter((t) => t.library === sec.name);
+    if (!types.length && !templates.length) continue;
+    const details = el("details", { class: "lib", open: "" });
+    const summary = el("summary", { title: sec.description }, sec.title);
+    details.append(summary);
+    for (const t of types) details.append(typeCard(t));
+    for (const t of templates) details.append(templateCard(t));
+    root.append(details);
   }
+}
+
+function shortName(id) {
+  return id.includes("/") ? id.slice(id.indexOf("/") + 1) : id;
+}
+
+function typeCard(t) {
+  const card = el("div", { class: "type-card", draggable: "true", title: `${t.kind}\n${t.chain.join(" → ")}` });
+  card.append(el("i", { class: `fa-solid ${t.icon}` }));
+  const txt = el("div");
+  txt.append(el("div", { class: "k" }, shortName(t.kind)), el("div", { class: "d" }, t.description));
+  card.append(txt);
+  card.addEventListener("dragstart", (ev) => ev.dataTransfer.setData("text/x-sim-type", t.kind));
+  card.addEventListener("click", () => {
+    const p = viewCenter();
+    const n = state.model.entities.length;
+    app.addEntity(t.kind, [p.x - NODE_W / 2 + (n % 5) * 16, p.y - NODE_H / 2 + (n % 5) * 16]);
+  });
+  return card;
+}
+
+function templateCard(t) {
+  const card = el("div", { class: "type-card template", draggable: "true", title: `${t.id} (template)` });
+  card.append(el("i", { class: `fa-solid ${t.icon}` }));
+  const txt = el("div");
+  const k = el("div", { class: "k" }, shortName(t.id));
+  k.append(el("span", { class: "tag" }, "template"));
+  txt.append(k, el("div", { class: "d" }, t.description));
+  card.append(txt);
+  card.addEventListener("dragstart", (ev) => ev.dataTransfer.setData("text/x-sim-template", t.id));
+  card.addEventListener("click", () => editor.select({ kind: "template", id: t.id }));
+  return card;
+}
+
+function viewCenter() {
+  const r = $("canvas").getBoundingClientRect();
+  return editor.toWorld({ clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 });
+}
+
+// Expand a template on the server and add its entities around `origin`.
+async function insertTemplate(id, args = {}, prefix = null, origin = viewCenter()) {
+  const base = prefix || shortName(id).replace(/-/g, "_");
+  const used = new Set(state.model.entities.map((e) => e.group).filter(Boolean));
+  const ids = new Set(state.model.entities.map((e) => e.id));
+  let p = base;
+  for (let n = 2; used.has(p) || [...ids].some((x) => x.startsWith(`${p}_`)); n++) p = `${base}${n}`;
+  let frag;
+  try {
+    frag = await api.instantiate(id, args, p);
+  } catch (e) {
+    showBanner(e.message);
+    return;
+  }
+  layoutFragment(frag.entities, frag.connections, origin);
+  state.model.entities.push(...frag.entities);
+  state.model.connections.push(...frag.connections);
+  editor.select({ kind: "group", id: frag.group });
+  changed();
 }
 
 // --- inspector -----------------------------------------------------------------
@@ -217,7 +300,62 @@ function renderInspector() {
     const c = state.model.connections.find((x) => linkKey(x) === sel.id);
     if (c) return inspectLink(root, c);
   }
+  if (sel?.kind === "template" && state.templates[sel.id]) return inspectTemplate(root, state.templates[sel.id]);
+  if (sel?.kind === "group") {
+    const members = state.model.entities.filter((e) => e.group === sel.id);
+    if (members.length) return inspectGroup(root, sel.id, members);
+  }
   inspectModel(root);
+}
+
+function inspectTemplate(root, t) {
+  root.append(el("h2", {}, "Template"));
+  const title = el("h3");
+  title.append(el("i", { class: `fa-solid ${t.icon}` }), ` ${t.id}`);
+  root.append(title, el("p", { class: "sub" }, t.description));
+  const args = {};
+  if (Object.keys(t.params).length) root.append(el("h2", {}, "Arguments"));
+  for (const [name, meta] of Object.entries(t.params)) {
+    const fieldMeta = meta.type === "string" ? { ...meta, type: "string" } : meta;
+    root.append(paramField(args, name, fieldMeta, { silent: true }));
+  }
+  const prefix = { value: "" };
+  root.append(textField("prefix (group name)", "", (v) => { prefix.value = v; }, { silent: true }));
+  const ports = [
+    ...Object.entries(t.inputs).map(([k, v]) => `in ${k} → ${v}`),
+    ...Object.entries(t.outputs).map(([k, v]) => `out ${k} ← ${v}`),
+  ];
+  if (ports.length) root.append(el("p", { class: "sub" }, `Boundary: ${ports.join(" · ")}`));
+  const actions = el("div", { class: "row-actions" });
+  const add = el("button", { class: "primary" });
+  add.append(el("i", { class: "fa-solid fa-plus" }), " Insert");
+  add.onclick = () => insertTemplate(t.id, args, prefix.value || null);
+  actions.append(add);
+  root.append(actions);
+}
+
+function inspectGroup(root, group, members) {
+  root.append(el("h2", {}, "Group"));
+  const title = el("h3");
+  title.append(el("i", { class: "fa-solid fa-layer-group" }), ` ${group}`);
+  root.append(title);
+  root.append(el("p", { class: "sub" }, `${members.length} entities. Drag the frame header to move them together.`));
+  const table = el("table", { class: "metrics" });
+  for (const e of members) table.append(row(e.id, e.type));
+  root.append(table);
+  const actions = el("div", { class: "row-actions" });
+  const ungroup = el("button", { title: "Keep the entities, drop the frame" });
+  ungroup.append(el("i", { class: "fa-solid fa-object-ungroup" }), " Ungroup");
+  ungroup.onclick = () => {
+    for (const e of members) delete e.group;
+    editor.select(null);
+    changed();
+  };
+  const del = el("button", { class: "danger" });
+  del.append(el("i", { class: "fa-solid fa-trash" }), " Delete all");
+  del.onclick = () => app.deleteSelection();
+  actions.append(ungroup, del);
+  root.append(actions);
 }
 
 function inspectModel(root) {
@@ -240,6 +378,12 @@ function inspectEntity(root, e) {
   title.append(el("i", { class: `fa-solid ${type?.icon || "fa-circle-question"}` }), ` ${e.id}`);
   root.append(title);
   root.append(el("p", { class: "sub" }, type ? type.description : `unknown type ${e.type}`));
+  if (type && type.chain.length > 1) {
+    const chain = el("p", { class: "sub chain" });
+    chain.append(el("i", { class: "fa-solid fa-sitemap" }), ` ${type.chain.join(" → ")}`);
+    root.append(chain);
+  }
+  if (e.group) root.append(el("p", { class: "sub" }, `In group ${e.group}`));
 
   const idField = textField("id", e.id, (v, input) => {
     if (!renameEntity(e.id, v)) input.classList.add("invalid");
@@ -281,23 +425,38 @@ function inspectLink(root, c) {
   renderMetrics();
 }
 
-function textField(label, value, onChange) {
+// `silent` fields edit a scratch object (e.g. template arguments), not the model.
+function textField(label, value, onChange, { silent = false } = {}) {
   const f = el("div", { class: "field" });
   f.append(el("label", {}, label));
   const input = el("input", { value, spellcheck: "false" });
   input.addEventListener("change", () => {
     input.classList.remove("invalid");
     onChange(input.value.trim(), input);
-    changed({ structural: false });
+    if (!silent) changed({ structural: false });
   });
   f.append(input);
   return f;
 }
 
 // Edit obj[name] according to its schema entry; values are typed as JSON.
-function paramField(obj, name, meta) {
+function paramField(obj, name, meta, { silent = false } = {}) {
+  const changed = silent ? () => {} : changedModel;
   const f = el("div", { class: meta.type === "bool" ? "field check" : "field" });
   const has = Object.prototype.hasOwnProperty.call(obj, name);
+  if (meta.type === "string") {
+    const label = el("label");
+    label.append(el("span", {}, name), el("span", { class: "help" }, meta.help || ""));
+    const input = el("input", { spellcheck: "false", placeholder: meta.default ?? "" });
+    input.value = has ? obj[name] : "";
+    input.addEventListener("change", () => {
+      if (input.value.trim()) obj[name] = input.value.trim();
+      else delete obj[name];
+      changed({ structural: false });
+    });
+    f.append(label, input);
+    return f;
+  }
   if (meta.type === "bool") {
     const label = el("label");
     const box = el("input", { type: "checkbox" });
@@ -552,8 +711,10 @@ function setStatus(text, kind = "") {
 
 async function start() {
   await loadIconFont();
-  const types = await api.types();
+  const [types, libraries, templates] = await Promise.all([api.types(), api.libraries(), api.templates()]);
   state.types = Object.fromEntries(types.map((t) => [t.kind, t]));
+  state.libraries = libraries;
+  state.templates = Object.fromEntries(templates.map((t) => [t.id, t]));
   renderPalette();
   const first = "examples/web-backend.yaml";
   await refreshModelList(first);

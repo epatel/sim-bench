@@ -1,0 +1,25 @@
+name: cached-db
+description: A cache in front of a database; hits return quickly, misses go to the database.
+icon: fa-layer-group
+params:
+  hit_ratio: {type: float, default: 0.85, help: fraction of requests served from cache}
+  cache_latency: {type: dist, default: 0.002, help: time for a cache hit}
+entities:
+  - id: cache
+    type: web/cache
+    params:
+      routes: {hit: "{hit_ratio}", miss: "{1 - hit_ratio}"}
+  - id: hit
+    type: delay
+    params: {delay: "{cache_latency}"}
+  - id: db
+    type: web/database
+  - id: join
+    type: delay
+connections:
+  - {from: cache.hit, to: hit.in}
+  - {from: cache.miss, to: db.in}
+  - {from: hit.out, to: join.in}
+  - {from: db.out, to: join.in}
+inputs: {in: cache.in}
+outputs: {out: join.out}

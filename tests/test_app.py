@@ -101,3 +101,59 @@ def test_index_and_static_files_are_served(client):
     assert "sim-bench" in client.get("/").text
     assert client.get("/js/main.js").status_code == 200
     assert client.get("/vendor/fontawesome/css/all.min.css").status_code == 200
+
+
+# --- libraries and templates (M3) ------------------------------------------------
+
+
+def test_types_include_library_types_with_merged_defaults(client):
+    types = {t["kind"]: t for t in client.get("/api/types").json()}
+    app = types["web/app-server"]
+    assert app["library"] == "web" and app["base"] == "server"
+    assert app["params"]["servers"]["default"] == 4  # library override
+    assert app["params"]["service"]["type"] == "dist"  # schema comes from the base
+    assert types["web/cache"]["outputs"] == ["hit", "miss"]
+    assert types["server"]["library"] == ""
+
+
+def test_libraries_and_templates_are_listed(client):
+    libs = {lib["name"] for lib in client.get("/api/libraries").json()}
+    assert {"web", "queueing"} <= libs
+    templates = {t["id"]: t for t in client.get("/api/templates").json()}
+    assert templates["web/lb-pool"]["params"]["n"]["default"] == 3
+
+
+def test_instantiate_template(client):
+    r = client.post(
+        "/api/templates/web/lb-pool/instantiate", json={"args": {"n": 2}, "prefix": "p"}
+    )
+    assert r.status_code == 200
+    frag = r.json()
+    assert [e["id"] for e in frag["entities"]] == ["p_lb", "p_s1", "p_s2", "p_join"]
+    bad = client.post("/api/templates/web/lb-pool/instantiate", json={"args": {"n": 0}})
+    assert bad.status_code == 422 and ">= 1" in bad.json()["detail"]
+    missing = client.post("/api/templates/web/nope/instantiate", json={})
+    assert missing.status_code == 422
+
+
+def test_library_model_validates_and_runs(client):
+    model = {
+        "entities": [
+            {"id": "u", "type": "web/client", "params": {"count": 5}},
+            {"id": "d", "type": "web/response"},
+        ],
+        "connections": [{"from": "u.out", "to": "d.in"}],
+    }
+    assert client.post("/api/validate", json=model).json()["ok"]
+    with client.websocket_connect("/ws/run") as ws:
+        ws.send_json({"cmd": "load", "model": model, "seed": 1})
+        assert ws.receive_json()["type"] == "loaded"
+        ws.receive_json()
+        ws.send_json({"cmd": "speed", "value": 1000})
+        ws.send_json({"cmd": "play"})
+        for _ in range(50):
+            frame = ws.receive_json()
+            if not frame["playing"]:
+                break
+        done = frame["summary"]["entities"]["d"]
+        assert done["received"]["value"] == 5 and done["item_type"] == "web/response"

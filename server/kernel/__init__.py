@@ -1,6 +1,7 @@
 """Discrete-event simulation kernel (milestone M1)."""
 
 from .behaviors import BEHAVIORS, Behavior
+from .library import ItemType, Library, LibraryError, Template
 from .model import ConnectionSpec, EntitySpec, ModelSpec, load_model
 from .sim import Context, Message, ModelError, Simulation
 
@@ -10,9 +11,13 @@ __all__ = [
     "ConnectionSpec",
     "Context",
     "EntitySpec",
+    "ItemType",
+    "Library",
+    "LibraryError",
     "Message",
     "ModelError",
     "ModelSpec",
     "Simulation",
+    "Template",
     "load_model",
 ]

@@ -8,6 +8,7 @@ stream (see ``rng.RngPool``).
 
 from __future__ import annotations
 
+import copy
 import heapq
 import pickle
 from collections.abc import Callable
@@ -15,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .behaviors import BEHAVIORS, Behavior
+from .library import Library, LibraryError
 from .metrics import Counter, Gauge, Samples
 from .model import ConnectionSpec, EntitySpec, ModelSpec
 from .rng import RngPool, sample
@@ -77,10 +79,11 @@ class MetricSet:
 class Context:
     """What a behavior may touch. Bound to one entity."""
 
-    def __init__(self, sim: Simulation, spec: EntitySpec) -> None:
+    def __init__(self, sim: Simulation, spec: EntitySpec, params: dict[str, Any]) -> None:
         self._sim = sim
         self.entity_id = spec.id
-        self.params = spec.params
+        self.item_type = spec.type
+        self.params = params  # type defaults merged with the entity's own params
         self.rng = sim.rngs.stream(f"entity:{spec.id}")
         self.metrics = MetricSet(sim, spec.id)
 
@@ -151,6 +154,7 @@ class Simulation:
         model: ModelSpec,
         seed: int = 0,
         behaviors: dict[str, type[Behavior]] | None = None,
+        library: Library | None = None,
     ) -> None:
         self.model = model
         self.seed = seed
@@ -162,18 +166,20 @@ class Simulation:
         self._msg_seq = 0
         self._listeners: list[Listener] = []
         self._started = False
-        registry = behaviors or BEHAVIORS
+        self.library = library or Library(behaviors or BEHAVIORS)
 
         self.entities: dict[str, Behavior] = {}
         self.ports: dict[str, tuple[list[str], list[str]]] = {}
         for spec in model.entities:
             if spec.id in self.entities:
                 raise ModelError(f"duplicate entity id {spec.id!r}")
-            cls = registry.get(spec.type)
-            if cls is None:
-                raise ModelError(f"entity {spec.id!r}: unknown type {spec.type!r}")
-            self.ports[spec.id] = cls.ports(spec.params)
-            self.entities[spec.id] = cls(Context(self, spec))
+            try:
+                resolved = self.library.resolve(spec.type)
+            except LibraryError as e:
+                raise ModelError(f"entity {spec.id!r}: {e}") from e
+            params = {**resolved.defaults, **copy.deepcopy(spec.params)}
+            self.ports[spec.id] = resolved.behavior.ports(params)
+            self.entities[spec.id] = resolved.behavior(Context(self, spec, params))
 
         self.links: dict[str, Link] = {}
         self._out: dict[tuple[str, str], Link] = {}
@@ -294,7 +300,12 @@ class Simulation:
         self.start()  # behaviors set up their state (and metrics) in on_start
         entities = {}
         for eid, b in self.entities.items():
-            entities[eid] = {"type": b.kind, **b.ctx.metrics.summary(self.now), **b.summary_extra()}
+            entities[eid] = {
+                "type": b.kind,
+                "item_type": b.ctx.item_type,
+                **b.ctx.metrics.summary(self.now),
+                **b.summary_extra(),
+            }
         links = {k: link.metrics.summary(self.now) for k, link in self.links.items()}
         return {
             "model": self.model.name,

@@ -1,0 +1,7 @@
+name: cache
+extends: router
+description: Splits requests into cache hits and misses by hit ratio (outputs hit, miss).
+icon: fa-bolt
+params:
+  mode: random
+  routes: {hit: 0.85, miss: 0.15}

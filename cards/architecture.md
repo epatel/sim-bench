@@ -8,7 +8,7 @@ How the workbench is split into parts, and where each part lives. Read this befo
 flowchart LR
   Web["web/<br/>canvas, panels"] <-- REST + WebSocket --> API["server/app.py<br/>FastAPI"]
   API --> Kernel["server/kernel/<br/>discrete-event engine"]
-  API --> Store["model store (planned M3)<br/>projects/, libraries/"]
+  API --> Store["projects/ models<br/>libraries/ types + templates"]
   API --> Agent["server/agent/ (planned M7)<br/>claude-agent-sdk"]
   Kernel --> DB[("SQLite run results (planned M6)")]
 ```
@@ -18,7 +18,7 @@ flowchart LR
 | `server/kernel/` | built (M1) | Clock, event queue, RNG streams, tier-1 behaviors, links, metrics, snapshot/fork, headless CLI. |
 | `projects/examples/` | built (M1) | Example models in YAML (`mm1.yaml`, `web-backend.yaml`). |
 | `server/app.py`, `web/` | built (M2) | FastAPI REST for models and types, a WebSocket that streams live runs, and the vanilla-JS canvas editor. Font Awesome is vendored. |
-| `libraries/` | planned (M3) | Item types and templates as YAML. |
+| `libraries/`, `server/kernel/library.py` | built (M3) | Item types (`extends` chains with merged defaults) and parameterized templates, as YAML. |
 | `server/agent/` | planned (M7) | Claude Agent SDK session and in-process MCP tools that call the kernel and the model store. |
 
 ## Boundaries

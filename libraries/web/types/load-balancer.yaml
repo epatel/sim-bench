@@ -1,0 +1,7 @@
+name: load-balancer
+extends: router
+description: Spreads requests round-robin over its outputs (edit routes to add backends).
+icon: fa-scale-balanced
+params:
+  mode: round_robin
+  routes: {a: 1, b: 1}

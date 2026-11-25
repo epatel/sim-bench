@@ -1,0 +1,4 @@
+name: response
+extends: sink
+description: Where finished requests end up; records end-to-end latency.
+icon: fa-reply
