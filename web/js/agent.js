@@ -58,7 +58,12 @@ export class AgentChat {
     const reset = h("button", { title: "Start a new conversation" });
     reset.append(icon("fa-rotate-right"));
     reset.onclick = () => this.reset();
-    head.append(this.statusLine, reset);
+    this.sourcesBtn = h("button", { title: "Projects the agent may read" });
+    this.sourcesBtn.onclick = () => this.sourcesPanel.classList.toggle("hidden");
+    const buttons = h("span", { class: "ag-head-buttons" });
+    buttons.append(this.sourcesBtn, reset);
+    head.append(this.statusLine, buttons);
+    this.sourcesPanel = h("div", { class: "ag-sources hidden" });
     this.log = h("div", { class: "ag-log" });
     this.composer = h("form", { class: "ag-compose" });
     this.input = h("textarea", { rows: "3", placeholder: "Ask the agent to build, change, run or explain the model…" });
@@ -75,8 +80,9 @@ export class AgentChat {
       this.busy ? this.stop() : this.submit();
     };
     this.composer.append(this.input, this.sendBtn);
-    this.root.append(head, this.log, this.composer);
+    this.root.append(head, this.sourcesPanel, this.log, this.composer);
     this.showSuggestions();
+    this.loadSources();
   }
 
   async loadStatus() {
@@ -87,6 +93,51 @@ export class AgentChat {
     } catch {
       this.statusLine.textContent = "agent unavailable";
     }
+  }
+
+  // --- sources: other projects the agent may read ----------------------------------
+
+  async loadSources() {
+    const list = await (await fetch("/api/sources")).json();
+    this.sourcesBtn.innerHTML = "";
+    this.sourcesBtn.append(icon("fa-folder-tree"), ` ${list.length}`);
+    this.sourcesPanel.innerHTML = "";
+    this.sourcesPanel.append(h("p", { class: "sub" }, "The agent may read these projects (never run them). It proposes models from them for you to review."));
+    for (const s of list) {
+      const row = h("div", { class: "ag-source" });
+      const del = h("button", { title: `Stop sharing ${s.name}` });
+      del.append(icon("fa-xmark"));
+      del.onclick = async () => {
+        await fetch(`/api/sources/${encodeURIComponent(s.name)}`, { method: "DELETE" });
+        this.loadSources();
+      };
+      row.append(h("b", {}, s.name), h("span", {}, s.path), del);
+      this.sourcesPanel.append(row);
+    }
+    const form = h("form", { class: "ag-source-add" });
+    const name = h("input", { placeholder: "name", spellcheck: "false" });
+    const path = h("input", { placeholder: "/absolute/path/to/project", spellcheck: "false" });
+    const add = h("button", { type: "submit" }, "Add");
+    this.sourceError = h("div", { class: "ag-error" });
+    form.onsubmit = (ev) => {
+      ev.preventDefault();
+      this.addSource(name.value.trim(), path.value.trim());
+    };
+    form.append(name, path, add);
+    this.sourcesPanel.append(form, this.sourceError);
+  }
+
+  async addSource(name, path) {
+    const res = await fetch("/api/sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, path }),
+    });
+    if (!res.ok) {
+      this.sourceError.textContent = (await res.json()).detail;
+      return;
+    }
+    this.loadSources();
   }
 
   connect() {
@@ -167,9 +218,46 @@ export class AgentChat {
       model: () => this.hooks.applyModel(e.model),
       batch: () => this.hooks.onBatch(e.id),
       error: () => this.add(h("div", { class: "ag-error" }, e.message)),
+      proposal: () => this.proposal(e.proposal),
+      proposal_resolved: () => this.resolved(e.accepted),
       done: () => this.done(e),
     }[e.type];
     if (handler) handler();
+  }
+
+  // --- proposals: changes the agent wants you to review ---------------------------------
+
+  proposal(p) {
+    const diff = this.hooks.onProposal(p);
+    const card = h("div", { class: "ag-proposal" });
+    card.append(h("div", { class: "ag-proposal-head" }, `Proposal: ${p.summary}`));
+    const counts = `+${diff.added} new · ~${diff.changed} changed · −${diff.removed} removed` +
+      (p.types.length ? ` · ${p.types.length} new type${p.types.length === 1 ? "" : "s"}` : "");
+    card.append(h("div", { class: "sub" }, counts));
+    for (const t of p.types) card.append(h("div", { class: "ag-type" }, `${t.library}/${t.name} extends ${t.extends}`));
+    if (p.notes) {
+      const notes = h("div", { class: "ag-msg ag-bot" });
+      notes.innerHTML = renderMarkdown(p.notes);
+      card.append(notes);
+    }
+    const actions = h("div", { class: "row-actions" });
+    const accept = h("button", { class: "primary" });
+    accept.append(icon("fa-check"), " Accept");
+    const reject = h("button");
+    reject.append(icon("fa-xmark"), " Reject");
+    accept.onclick = () => this.ws.send(JSON.stringify({ cmd: "accept" }));
+    reject.onclick = () => this.ws.send(JSON.stringify({ cmd: "reject" }));
+    actions.append(accept, reject);
+    card.append(actions);
+    this.pending = card;
+    this.add(card);
+  }
+
+  resolved(accepted) {
+    this.hooks.onProposalResolved(accepted);
+    if (!this.pending) return;
+    this.pending.querySelector(".row-actions").replaceWith(h("div", { class: "sub" }, accepted ? "✓ Accepted" : "✕ Rejected"));
+    this.pending = null;
   }
 
   toolCall(e) {

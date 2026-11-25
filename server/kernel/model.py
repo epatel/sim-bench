@@ -40,6 +40,8 @@ class EntitySpec(BaseModel):
     pos: tuple[float, float] | None = None
     # Template instance this entity came from (drawn as a frame; a composite from M4).
     group: str | None = None
+    # Where its behavior came from in another project: "source:path/file.py:120[-140]".
+    source: list[str] | None = None
 
     @field_validator("id")
     @classmethod

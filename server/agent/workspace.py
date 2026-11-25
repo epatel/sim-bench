@@ -27,7 +27,8 @@ class Workspace:
         self.model = _normalized(model)
         self.validate = validate
         self.history: list[dict[str, Any]] = []
-        self.listeners: list[Callable[[dict[str, Any]], Any]] = []
+        self.proposal: dict[str, Any] | None = None  # waiting for the user to accept/reject
+        self.notes: list[str] = []  # told to the agent with the next prompt
 
     def replace(self, model: dict[str, Any]) -> None:
         """The browser's current model (sent with each prompt). Not undoable."""
@@ -45,6 +46,15 @@ class Workspace:
         del self.history[:-MAX_UNDO]
         self.model = draft
         return result
+
+    def adopt(self, model: dict[str, Any]) -> None:
+        """Take an accepted proposal as the model (undoable)."""
+        self.history.append(self.model)
+        self.model = _normalized(model)
+
+    def take_notes(self) -> str:
+        notes, self.notes = self.notes, []
+        return "".join(f"[{n}]\n" for n in notes)
 
     def undo(self) -> None:
         if not self.history:

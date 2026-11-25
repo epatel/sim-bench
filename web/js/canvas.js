@@ -368,6 +368,7 @@ export class Editor extends EventTarget {
     const conns = new Map(this.app.model.connections.map((c) => [linkKey(c), c]));
     for (const conn of conns.values()) this.drawLink(conn);
     this.drawFlights(conns);
+    for (const e of this.app.ghosts || []) this.drawGhost(e);
     for (const e of this.nodes()) this.drawEntity(e);
     this.drawFlashes(conns);
 
@@ -510,6 +511,8 @@ export class Editor extends EventTarget {
     const selected = this.isSelected(e);
     if (e.collapsed) this.drawStackedBack(e, selected);
     this.drawCard(e, selected);
+    const diff = this.app.diffOf?.(e.id);
+    if (diff) this.drawDiffMark(e, diff);
     this.drawIcon(e);
     this.drawLabels(e);
     const stats = this.app.summary?.entities?.[e.id];
@@ -518,6 +521,44 @@ export class Editor extends EventTarget {
   }
 
   // A second card behind a collapsed group: this node stands in for many.
+  // Proposal preview: what the agent adds or changes, and what it would remove.
+  drawDiffMark(e, diff) {
+    const { ctx } = this;
+    const color = diff === "added" ? C.ok : C.accent;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    roundRect(ctx, e.pos[0] - 4, e.pos[1] - 4, NODE_W + 8, NODE_H + 8, 12);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const label = diff === "added" ? "NEW" : "CHANGED";
+    ctx.font = "700 9px -apple-system, Segoe UI, sans-serif";
+    const w = ctx.measureText(label).width + 10;
+    ctx.fillStyle = color;
+    roundRect(ctx, e.pos[0] + NODE_W - w, e.pos[1] - 12, w, 14, 7);
+    ctx.fill();
+    ctx.fillStyle = "#10141a";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, e.pos[0] + NODE_W - w / 2, e.pos[1] - 5);
+  }
+
+  drawGhost(e) {
+    const { ctx } = this;
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = C.bad;
+    ctx.setLineDash([4, 4]);
+    roundRect(ctx, e.pos[0], e.pos[1], NODE_W, NODE_H, 9);
+    ctx.stroke();
+    ctx.fillStyle = C.bad;
+    ctx.font = "600 12px -apple-system, Segoe UI, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${e.id} (removed)`, e.pos[0] + 12, e.pos[1] + NODE_H / 2);
+    ctx.restore();
+  }
+
   drawStackedBack(e, selected) {
     const { ctx } = this;
     ctx.fillStyle = "#141a22";

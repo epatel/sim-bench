@@ -26,7 +26,7 @@ sequenceDiagram
 
 ## Tools (`tools.py`)
 
-get_model, list_types, add_entity, update_entity, remove_entity, connect, update_link, disconnect, replace_model, undo, insert_template, set_group, calibrate_group, define_type, set_scenario, run, run_batch.
+get_model, list_types, add_entity, update_entity, remove_entity, connect, update_link, disconnect, replace_model, undo, insert_template, set_group, calibrate_group, define_type, set_scenario, run, run_batch, list_sources, propose_changes. Reading other projects (Read/Grep/Glob, proposals) is covered in the sources card.
 
 - Tool results are short text: `brief()` gives the key numbers per entity, and `compare()` gives mean ± CI per scenario. Simulations run in a worker thread.
 - `define_type` writes **YAML only**, to `libraries/<lib>/types/<name>.yaml`. Names must match `[a-z][a-z0-9-]*`. The library is reloaded after writing, and the file is restored if the new type breaks it. The agent has no way to write Python behaviors, and the system prompt tells it to ask the user instead.
@@ -34,7 +34,7 @@ get_model, list_types, add_entity, update_entity, remove_entity, connect, update
 
 ## Isolation and authentication (`session.py`)
 
-- `tools=[]` turns off every built-in tool (Bash, file edits, web). `allowed_tools` lists only the workbench tools, and `can_use_tool` denies anything else.
+- `tools=[]` turns off every built-in tool (Bash, file edits, web). With registered sources it is `["Read", "Grep", "Glob"]`, guarded by a hook (see the sources card). `allowed_tools` lists only the workbench tools, and `can_use_tool` denies anything else.
 - `setting_sources=[]` and `skills=[]` keep the agent from loading this repo's CLAUDE.md, hooks, permissions or skills, which are for developing the workbench, not for using it.
 - At import time, `strip_api_keys()` removes `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` from the server's environment. The SDK passes the server's environment on to the CLI, and its `env` option can add variables but not remove them, so this is the only way to make sure the CLI uses its own login (the user's subscription). `/api/agent/status` reports which keys were removed.
 - The model is the login's default. Set `SIMBENCH_AGENT_MODEL` to override it. A prompt has at most 40 turns.

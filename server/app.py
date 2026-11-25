@@ -42,11 +42,13 @@ from .kernel import (
 )
 from .kernel import scenario as scen
 from .kernel.yamlio import load_yaml
+from .sources import SourceError, SourceRegistry
 from .storage import RunStore
 
 ROOT = Path(__file__).resolve().parent.parent
 PROJECTS = ROOT / "projects"
 RUNS_DB = ROOT / "runs.sqlite3"
+LOCAL = ROOT / ".simbench"  # machine-specific state (gitignored)
 LIBRARIES = ROOT / "libraries"
 WEB = ROOT / "web"
 
@@ -116,8 +118,10 @@ def list_types() -> list[dict[str, Any]]:
                 if k not in schema
             }
         )
+        item = lib.types.get(tid)
         out.append(
             {
+                "source": item.source if item else None,
                 "kind": tid,
                 "base": r.chain[-1],
                 "chain": r.chain,
@@ -554,7 +558,41 @@ def _agent_env(workspace: agent.Workspace, send) -> agent.Env:
         start_batch=start_batch,
         batch_result=get_batch,
         notify=send,
+        sources=sources(),
     )
+
+
+def sources() -> SourceRegistry:
+    return SourceRegistry(LOCAL / "sources.json")
+
+
+@app.get("/api/sources")
+def list_sources() -> list[dict[str, str]]:
+    return [{"name": s.name, "path": str(s.path)} for s in sources().all()]
+
+
+@app.post("/api/sources")
+def add_source(body: dict[str, Any]) -> dict[str, str]:
+    try:
+        s = sources().add(str(body.get("name", "")), str(body.get("path", "")))
+    except SourceError as e:
+        raise HTTPException(422, str(e)) from e
+    return {"name": s.name, "path": str(s.path)}
+
+
+@app.delete("/api/sources/{name}")
+def remove_source(name: str) -> dict[str, bool]:
+    sources().remove(name)
+    return {"ok": True}
+
+
+@app.get("/api/sources/snippet")
+def source_snippet(ref: str) -> dict[str, Any]:
+    """The code a provenance reference points to (only inside registered sources)."""
+    try:
+        return sources().snippet(ref)
+    except SourceError as e:
+        raise HTTPException(422, str(e)) from e
 
 
 @app.get("/api/agent/status")
@@ -580,7 +618,8 @@ class AgentChat:
         self.task: asyncio.Task | None = None
 
     def new_session(self) -> agent.AgentSession:
-        return agent.AgentSession(_agent_env(self.workspace, self.send), self.send)
+        env = _agent_env(self.workspace, self.send)
+        return agent.AgentSession(env, self.send, workdir=LOCAL / "agent-cwd")
 
     async def handle(self, msg: dict[str, Any]) -> None:
         cmd = msg.get("cmd")
@@ -591,6 +630,25 @@ class AgentChat:
         elif cmd == "reset":
             await self.session.close()
             self.session = self.new_session()
+        elif cmd in ("accept", "reject"):
+            await self.resolve(cmd == "accept")
+
+    async def resolve(self, accepted: bool) -> None:
+        """The user's answer to the agent's pending proposal."""
+        p = self.workspace.proposal
+        if p is None:
+            return await self.send({"type": "error", "message": "there is no pending proposal"})
+        if accepted:
+            try:
+                await asyncio.to_thread(agent.write_types, LIBRARIES, p["types"])
+            except Exception as e:  # keep the proposal so the user can retry or reject
+                return await self.send({"type": "error", "message": f"could not write types: {e}"})
+            self.workspace.adopt(p["model"])
+            await self.send({"type": "model", "model": self.workspace.model})
+        self.workspace.proposal = None
+        verdict = "accepted" if accepted else "rejected"
+        self.workspace.notes.append(f"The user {verdict} your proposal: {p['summary']}")
+        await self.send({"type": "proposal_resolved", "accepted": accepted})
 
     async def prompt(self, text: str, model: dict[str, Any]) -> None:
         if self.task and not self.task.done():

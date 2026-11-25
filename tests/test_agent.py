@@ -29,6 +29,7 @@ def env(tmp_path, monkeypatch):
     shutil.copytree(ROOT / "libraries", libs)
     monkeypatch.setattr(app_module, "LIBRARIES", libs)
     monkeypatch.setattr(app_module, "RUNS_DB", tmp_path / "runs.sqlite3")
+    monkeypatch.setattr(app_module, "LOCAL", tmp_path / "local")
     events = []
 
     async def send(event):
@@ -155,9 +156,9 @@ def test_replace_model_from_yaml(env):
 
 
 def test_session_is_isolated_and_limited_to_workbench_tools(env):
-    s = AgentSession(env, env.notify)
+    s = AgentSession(env, env.notify, workdir=Path(env.libraries_dir).parent / "cwd")
     o = s.options()
-    assert o.tools == [] and o.setting_sources == [] and o.skills == []
+    assert o.tools == [] and o.setting_sources == [] and o.skills == [] and o.add_dirs == []
     assert set(o.allowed_tools) == set(agent.tool_names())
     deny = asyncio.run(s.can_use_tool("Bash", {"command": "ls"}, None))
     allow = asyncio.run(s.can_use_tool("mcp__workbench__run", {}, None))

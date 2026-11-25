@@ -208,3 +208,19 @@ details.lib[open] > summary::before { transform: rotate(90deg); }
 .ag-compose { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--line); }
 .ag-compose textarea { flex: 1; resize: none; font: 12.5px/1.4 var(--sans); color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; }
 .ag-compose button { align-self: flex-end; }
+
+/* sources, proposals, provenance */
+.ag-head-buttons { display: flex; gap: 6px; }
+.ag-sources { padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.ag-sources.hidden { display: none; }
+.ag-source { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; font-size: 12px; margin-bottom: 6px; }
+.ag-source span { font: 11px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-source-add { display: grid; grid-template-columns: 80px 1fr auto; gap: 6px; }
+.ag-source-add input { font: 11.5px var(--mono); min-width: 0; }
+.ag-proposal { border: 1px solid #3c5a3f; background: #141d17; border-radius: 9px; padding: 9px 10px; display: flex; flex-direction: column; gap: 6px; }
+.ag-proposal-head { font-weight: 600; }
+.ag-type { font: 11.5px var(--mono); color: var(--ok); }
+.provenance .ref { display: block; width: 100%; text-align: left; font: 11px var(--mono); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.snippet { font: 11px/1.45 var(--mono); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 0; overflow-x: auto; margin: 4px 0 12px; }
+.snippet span { display: block; padding: 0 8px; white-space: pre; color: var(--muted); }
+.snippet span.hot { color: var(--text); background: #2a2312; }

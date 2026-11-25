@@ -21,6 +21,7 @@ flowchart LR
 | `projects/examples/` | built (M1) | Example models in YAML (`mm1.yaml`, `web-backend.yaml`). |
 | `server/app.py`, `web/` | built (M2) | FastAPI REST for models and types, a WebSocket that streams live runs, and the vanilla-JS canvas editor. Font Awesome is vendored. |
 | `libraries/`, `server/kernel/library.py` | built (M3) | Item types (`extends` chains with merged defaults) and parameterized templates, as YAML. |
+| `server/sources.py`, `web/js/proposal.js`, `web/js/provenance.js` | built (M8) | Registered read-only source trees, the read guard, proposals reviewed as a diff, provenance snippets. |
 | `server/agent/`, `web/js/agent.js` | built (M7) | Claude Agent SDK session (subscription login, isolated from repo settings) and in-process MCP tools that edit the browser's model, run simulations and batches, and define YAML types. |
 
 ## Boundaries

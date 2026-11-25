@@ -184,7 +184,7 @@ requirements.txt   (.venv, gitignored)
   SQLite results, comparison charts.
 - [x] **M7 Agent.** SDK session, chat panel, MCP model and sim tools, and a
   subscription-only auth check.
-- [ ] **M8 Source reading.** Registered source dirs, read-only permissions, the
+- [x] **M8 Source reading.** Registered source dirs, read-only permissions, the
   extract-behavior skill, pending-diff accept or reject, and provenance links.
 
 ## Decisions
@@ -225,6 +225,11 @@ requirements.txt   (.venv, gitignored)
 - 2026-11-25: The agent runs with `setting_sources=[]`, `tools=[]` and
   `skills=[]`: the repo's developer setup (hooks, CLAUDE.md) is not the
   product's agent setup.
+- 2026-11-25: Read access for the agent is enforced with a PreToolUse hook, not
+  only allow rules: allowed tools skip `can_use_tool`, and Claude Code allows
+  reads in working dirs without asking.
+- 2026-11-25: Extracted models are always proposals (a reviewed diff); new
+  types are written only on accept.
 - 2026-11-25: code-health uses the global aihealth install
   (`form: existing`) at the user's request. The pin and the install command are
   in `CLAUDE.md`.
@@ -290,9 +295,19 @@ requirements.txt   (.venv, gitignored)
 - A bug found on the way and fixed: reloading a Python behavior file shadowed
   the old class and broke snapshots and forks. Module names are now versioned
   by file mtime.
-- Next: M8. Reading other projects' source: registered read-only source
-  directories, Read/Grep/Glob limited to them, an extract-behavior workflow,
-  proposals shown as pending changes, and links back to the source.
+- M8 is done. Source directories are registered locally
+  (`.simbench/sources.json`). The agent gets Read/Grep/Glob, enforced by a
+  PreToolUse hook to stay inside the sources and away from secrets.
+  `propose_changes` validates a proposal against a scratch library copy, and
+  the canvas shows it as a diff to accept or reject (new types are written only
+  on accept). Provenance (`source:` on entities and types) links to code
+  snippets. Verified end to end: the agent read a sample shop project, proposed
+  a 6-entity model with correct line references and stated assumptions, and it
+  was accepted. The model ran and showed the worker pool near saturation.
+  `main.js` was split into dom/proposal/provenance modules. There are 163 tests.
+- All planned milestones are done. Candidates for next: nested composites, a
+  capacity-aware calibrated stand-in, a refactor to value types for ids, CI,
+  and project-level library pinning.
 
 ## Open questions
 

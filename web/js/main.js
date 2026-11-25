@@ -3,6 +3,9 @@ import { api, RunClient } from "./api.js";
 import { Editor, NODE_H, NODE_W, fmt, linkKey, splitRef } from "./canvas.js";
 import { loadIconFont } from "./icons.js";
 import { AgentChat } from "./agent.js";
+import { el } from "./dom.js";
+import { adoptPositions, buildPreview, normalize, positionsOf } from "./proposal.js";
+import { sourceSection } from "./provenance.js";
 import { Results } from "./results.js";
 
 const $ = (id) => document.getElementById(id);
@@ -36,7 +39,9 @@ function emptyModel() {
 // --- the object the canvas talks to ------------------------------------------
 
 const app = {
-  get model() { return state.model; },
+  get model() { return state.proposal ? state.proposal.model : state.model; },
+  diffOf(id) { return state.proposal?.status.get(id); },
+  get ghosts() { return state.proposal?.removed || []; },
   get types() { return state.types; },
   get summary() { return state.summary; },
 
@@ -50,6 +55,7 @@ const app = {
   },
 
   addEntity(kind, pos) {
+    if (state.proposal) return showBanner("Accept or reject the agent's proposal first.");
     const id = uniqueId(kind);
     state.model.entities.push({ id, type: kind, params: {}, pos: pos.map((v) => Math.round(v)) });
     editor.select({ kind: "entity", id });
@@ -67,10 +73,12 @@ const app = {
   },
 
   insertTemplate(id, pos) {
+    if (state.proposal) return showBanner("Accept or reject the agent's proposal first.");
     insertTemplate(id, {}, null, { x: pos[0] + NODE_W / 2, y: pos[1] + NODE_H / 2 });
   },
 
   connect(from, to) {
+    if (state.proposal) return showBanner("Accept or reject the agent's proposal first.");
     const conns = state.model.connections.filter((c) => c.from !== from); // one link per output
     conns.push({ from, to });
     state.model.connections = conns;
@@ -79,29 +87,34 @@ const app = {
   },
 
   deleteSelection() {
-    const sel = editor.selection;
-    if (!sel || sel.kind === "template") return;
-    if (sel.kind === "entity" || sel.kind === "group") {
-      const gone = new Set(
-        state.model.entities
-          .filter((e) => (sel.kind === "entity" ? e.id === sel.id : e.group === sel.id))
-          .map((e) => e.id),
-      );
-      if (sel.kind === "group") {
-        gone.add(sel.id); // also drops connections to "group.port"
-        removeGroupSpec(sel.id);
-      }
-      state.model.entities = state.model.entities.filter((e) => !gone.has(e.id));
-      state.model.connections = state.model.connections.filter(
-        (c) => !gone.has(splitRef(c.from)[0]) && !gone.has(splitRef(c.to)[0]),
-      );
-    } else if (sel.kind === "link") {
-      state.model.connections = state.model.connections.filter((c) => linkKey(c) !== sel.id);
-    }
+    if (state.proposal) return showBanner("Accept or reject the agent's proposal first.");
+    const remove = REMOVERS[editor.selection?.kind];
+    if (!remove) return;
+    remove(editor.selection.id);
     editor.select(null);
     changed();
   },
 };
+
+// How to delete each kind of selection from the model.
+const REMOVERS = {
+  entity: (id) => removeEntities(new Set([id])),
+  group: (id) => {
+    const members = state.model.entities.filter((e) => e.group === id).map((e) => e.id);
+    removeGroupSpec(id);
+    removeEntities(new Set([...members, id])); // the id also drops links to "group.port"
+  },
+  link: (id) => {
+    state.model.connections = state.model.connections.filter((c) => linkKey(c) !== id);
+  },
+};
+
+function removeEntities(gone) {
+  state.model.entities = state.model.entities.filter((e) => !gone.has(e.id));
+  state.model.connections = state.model.connections.filter(
+    (c) => !gone.has(splitRef(c.from)[0]) && !gone.has(splitRef(c.to)[0]),
+  );
+}
 
 const editor = new Editor($("canvas"), app);
 const results = new Results($("results"));
@@ -109,13 +122,35 @@ const chat = new AgentChat($("agent"), {
   getModel: () => state.model,
   applyModel: applyAgentModel,
   onBatch: (id) => results.show(id),
+  onProposal: previewProposal,
+  onProposalResolved: () => endPreview(),
 });
+
+// --- proposals: preview the agent's suggested model as a diff ---------------------
+
+function previewProposal(p) {
+  const preview = buildPreview(state.model, p.model);
+  layoutFragment(preview.model.entities, preview.model.connections, viewCenter());
+  state.proposal = preview;
+  showBanner("Reviewing the agent's proposal: accept or reject it in the chat.", "info");
+  api.validate(preview.model).then((res) => res.ok && Object.assign(state.ports, res.ports));
+  if (!state.model.entities.length) requestAnimationFrame(() => editor.fit());
+  return preview.counts;
+}
+
+function endPreview() {
+  const positions = positionsOf(state.proposal?.model);
+  state.proposal = null;
+  adoptPositions(state.model, positions, { overwrite: true });
+  editor.select(null);
+  hideBanner();
+}
 
 // The agent changed the model: adopt it (the file path stays), place new entities.
 function applyAgentModel(model) {
   const wasEmpty = state.model.entities.length === 0;
-  for (const key of ["entities", "connections", "groups", "scenarios"]) model[key] ??= [];
-  for (const e of model.entities) e.params ??= {};
+  normalize(model);
+  adoptPositions(model, positionsOf(state.proposal?.model)); // where the preview showed them
   layout(model);
   state.model = model;
   if (editor.selection && !selectionExists(editor.selection)) editor.select(null);
@@ -269,11 +304,7 @@ function layoutFragment(entities, connections, origin) {
 }
 
 function setModel(model, path) {
-  model.entities ??= [];
-  model.connections ??= [];
-  model.groups ??= [];
-  model.scenarios ??= [];
-  for (const e of model.entities) e.params ??= {};
+  normalize(model);
   layout(model);
   state.model = model;
   state.path = path;
@@ -671,17 +702,7 @@ function whatifControls(list) {
 
 function inspectEntity(root, e) {
   const type = state.types[e.type];
-  root.append(el("h2", {}, "Entity"));
-  const title = el("h3");
-  title.append(el("i", { class: `fa-solid ${type?.icon || "fa-circle-question"}` }), ` ${e.id}`);
-  root.append(title);
-  root.append(el("p", { class: "sub" }, type ? type.description : `unknown type ${e.type}`));
-  if (type && type.chain.length > 1) {
-    const chain = el("p", { class: "sub chain" });
-    chain.append(el("i", { class: "fa-solid fa-sitemap" }), ` ${type.chain.join(" → ")}`);
-    root.append(chain);
-  }
-  if (e.group) root.append(el("p", { class: "sub" }, `In group ${e.group}`));
+  entityHeader(root, e, type);
 
   const idField = textField("id", e.id, (v, input) => {
     if (!renameEntity(e.id, v)) input.classList.add("invalid");
@@ -689,12 +710,8 @@ function inspectEntity(root, e) {
   root.append(idField);
   root.append(textField("label", e.name || "", (v) => { if (v) e.name = v; else delete e.name; }));
 
-  if (type && Object.keys(type.params).length) {
-    root.append(el("h2", {}, "Parameters"));
-    for (const [name, meta] of Object.entries(type.params)) {
-      root.append(paramField(e.params, name, meta));
-    }
-  }
+  if (type && Object.keys(type.params).length) root.append(el("h2", {}, "Parameters"));
+  for (const [name, meta] of Object.entries(type?.params || {})) root.append(paramField(e.params, name, meta));
   const actions = el("div", { class: "row-actions" });
   const del = el("button", { class: "danger", title: "Delete (Del)" });
   del.append(el("i", { class: "fa-solid fa-trash" }), " Delete");
@@ -705,6 +722,21 @@ function inspectEntity(root, e) {
   root.append(el("h2", {}, "Metrics"));
   root.append(el("div", { id: "metrics" }));
   renderMetrics();
+}
+
+function entityHeader(root, e, type) {
+  root.append(el("h2", {}, "Entity"));
+  const title = el("h3");
+  title.append(el("i", { class: `fa-solid ${type?.icon || "fa-circle-question"}` }), ` ${e.id}`);
+  root.append(title, el("p", { class: "sub" }, type ? type.description : `unknown type ${e.type}`));
+  if (type?.chain.length > 1) {
+    const chain = el("p", { class: "sub chain" });
+    chain.append(el("i", { class: "fa-solid fa-sitemap" }), ` ${type.chain.join(" → ")}`);
+    root.append(chain);
+  }
+  if (e.group) root.append(el("p", { class: "sub" }, `In group ${e.group}`));
+  const refs = [...(e.source || []), ...(type?.source || [])];
+  if (refs.length) root.append(sourceSection(refs));
 }
 
 function inspectLink(root, c) {
@@ -1031,15 +1063,6 @@ editor.addEventListener("moved", () => {});
 
 // --- tiny DOM helper -------------------------------------------------------------
 
-function el(tag, attrs = {}, text) {
-  const n = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === "value") n.value = v;
-    else n.setAttribute(k, v);
-  }
-  if (text !== undefined) n.textContent = text;
-  return n;
-}
 
 let bannerTimer = null;
 function showBanner(text, kind = "error") {

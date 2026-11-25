@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import shutil
+import tempfile
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +23,7 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 from ..kernel import Library, LibraryError, ModelError, ModelSpec, Simulation, suggest_abstract
 from ..kernel import scenario as scen
 from ..kernel.yamlio import load_yaml
+from ..sources import SourceRegistry
 from .workspace import ToolError, Workspace, link_key
 
 SERVER_NAME = "workbench"
@@ -37,6 +40,7 @@ class Env:
     start_batch: Callable[[ModelSpec, list[str], list[int], float], int]  # -> batch id, blocking
     batch_result: Callable[[int, str | None], dict[str, Any]]
     notify: Callable[[dict[str, Any]], Awaitable[None]]  # push an event to the browser
+    sources: SourceRegistry
 
 
 def ok(text: str) -> dict[str, Any]:
@@ -337,31 +341,12 @@ def make_calibrate_group(env: Env):
 
 def make_define_type(env: Env):
     async def body(a):
-        lib_dir = env.libraries_dir / _safe_name(a["library"], "library")
-        _safe_name(a["name"], "type name")
-        if not (lib_dir / "library.yaml").exists():
-            raise ToolError(
-                f"no library {a['library']!r}; existing: {sorted(env.load_library().libraries)}"
-            )
-        path = lib_dir / "types" / f"{a['name']}.yaml"
-        data = {
-            k: a[k]
-            for k in ("name", "extends", "description", "icon", "params", "machine")
-            if k in a
-        }
-        old = path.read_text() if path.exists() else None
-        path.parent.mkdir(exist_ok=True)
-        path.write_text(yaml.safe_dump(data, sort_keys=False))
-        try:
-            env.load_library()
-        except Exception:
-            path.write_text(old) if old is not None else path.unlink()
-            raise
-        return f"{'updated' if old else 'created'} type {a['library']}/{a['name']} in {path.name}"
+        created = write_types(env.libraries_dir, [a])
+        return f"{'created' if created else 'updated'} type {a['library']}/{a['name']}"
 
     schema = obj(
         {"library": STR, "name": STR, "extends": STR, "description": STR, "icon": STR,
-         "params": ANY_OBJ, "machine": ANY_OBJ},
+         "params": ANY_OBJ, "machine": ANY_OBJ, "source": {"type": "array", "items": STR}},
         ("library", "name", "extends"),
     )  # fmt: skip
     desc = (
@@ -441,7 +426,102 @@ def make_run_batch(env: Env):
     return tool("run_batch", desc, schema)(guarded(env, body, changes=False))
 
 
+# --- reading other projects (M8) ---------------------------------------------------------------
+
+
+def make_list_sources(env: Env):
+    async def body(a):
+        sources = env.sources.all()
+        if not sources:
+            return "No source projects are registered. The user can add them in the Agent tab."
+        lines = [f"- {s.name}: {s.path}" for s in sources]
+        return (
+            "Registered sources (read-only; refer to code as name:relative/path:line):\n"
+            + "\n".join(lines)
+        )
+
+    return tool("list_sources", "The other projects you may read (Read/Grep/Glob).", obj({}))(
+        guarded(env, body, changes=False)
+    )
+
+
+def make_propose_changes(env: Env):
+    async def body(a):
+        data = load_yaml(a["model_yaml"])
+        if not isinstance(data, dict):
+            raise ToolError("model_yaml must be a mapping with entities and connections")
+        types = a.get("types") or []
+        model = await asyncio.to_thread(_validate_proposal, env.libraries_dir, data, types)
+        env.workspace.proposal = {
+            "summary": a["summary"],
+            "notes": a.get("notes", ""),
+            "model": model.model_dump(by_alias=True, exclude_none=True),
+            "types": types,
+        }
+        await env.notify({"type": "proposal", "proposal": env.workspace.proposal})
+        return (
+            "The proposal is on the user's canvas as a diff. Stop now and wait: they will accept "
+            "or reject it, and you will be told which with their next message."
+        )
+
+    schema = obj(
+        {"summary": STR, "notes": STR, "model_yaml": STR,
+         "types": {"type": "array", "items": ANY_OBJ}},
+        ("summary", "model_yaml"),
+    )  # fmt: skip
+    desc = (
+        "Propose a model built from source code, for the user to review: the full proposed model "
+        "as YAML (entities may carry source: ['name:path:line-line']) plus any new item types "
+        "(each {library, name, extends, ..., source}). Nothing is applied until the user accepts. "
+        "notes: your assumptions and open questions."
+    )
+    return tool("propose_changes", desc, schema)(guarded(env, body, changes=False))
+
+
+def _validate_proposal(libraries_dir: Path, data: dict[str, Any], types: list[dict]) -> ModelSpec:
+    """Check the model against a scratch copy of the libraries with the new types added."""
+    with tempfile.TemporaryDirectory() as tmp:
+        scratch = Path(tmp) / "libraries"
+        shutil.copytree(libraries_dir, scratch)
+        write_types(scratch, types)
+        model = ModelSpec.model_validate(data)
+        Simulation(model, library=Library.load(scratch))
+    return model
+
+
 # --- text reports ------------------------------------------------------------------------------
+
+
+TYPE_KEYS = ("name", "extends", "description", "icon", "params", "machine", "source")
+
+
+def write_types(libraries_dir: Path, types: list[dict[str, Any]]) -> int:
+    """Write YAML item types into their libraries; undo them all if the library breaks.
+
+    Returns how many were new. Library and type names must be safe file names.
+    """
+    backups: dict[Path, str | None] = {}
+    try:
+        for t in types:
+            path = _type_path(libraries_dir, t)
+            backups.setdefault(path, path.read_text() if path.exists() else None)
+            path.parent.mkdir(exist_ok=True)
+            path.write_text(yaml.safe_dump({k: t[k] for k in TYPE_KEYS if k in t}, sort_keys=False))
+        Library.load(libraries_dir)
+    except Exception:
+        for path, old in backups.items():
+            path.write_text(old) if old is not None else path.unlink(missing_ok=True)
+        raise
+    return sum(old is None for old in backups.values())
+
+
+def _type_path(libraries_dir: Path, t: dict[str, Any]) -> Path:
+    lib_dir = libraries_dir / _safe_name(t.get("library", ""), "library")
+    if not (lib_dir / "library.yaml").exists():
+        raise ToolError(f"no library {t.get('library')!r}")
+    if not t.get("extends"):
+        raise ToolError(f"type {t.get('name')!r} needs 'extends'")
+    return lib_dir / "types" / f"{_safe_name(t.get('name', ''), 'type name')}.yaml"
 
 
 def _merge_params(params: dict[str, Any], changes: dict[str, Any]) -> None:
@@ -529,10 +609,11 @@ TOOL_FACTORIES = [
     make_get_model, make_list_types, make_add_entity, make_update_entity, make_remove_entity,
     make_connect, make_update_link, make_disconnect, make_replace_model, make_undo,
     make_insert_template, make_set_group, make_calibrate_group, make_define_type,
-    make_set_scenario, make_run, make_run_batch,
+    make_set_scenario, make_run, make_run_batch, make_list_sources, make_propose_changes,
 ]  # fmt: skip
 TOOL_NAMES = [
     "get_model", "list_types", "add_entity", "update_entity", "remove_entity", "connect",
     "update_link", "disconnect", "replace_model", "undo", "insert_template", "set_group",
-    "calibrate_group", "define_type", "set_scenario", "run", "run_batch",
+    "calibrate_group", "define_type", "set_scenario", "run", "run_batch", "list_sources",
+    "propose_changes",
 ]  # fmt: skip

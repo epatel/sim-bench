@@ -52,6 +52,7 @@ class ItemType:
     description: str = ""
     icon: str | None = None
     params: dict[str, Any] = field(default_factory=dict)  # default overrides
+    source: list[str] | None = None  # provenance refs, e.g. "shop:src/cart.py:40"
 
 
 @dataclass
@@ -132,6 +133,7 @@ class Library:
             description=data.get("description", ""),
             icon=data.get("icon"),
             params=_type_params(data),
+            source=data.get("source"),
         )
 
     def add_type(self, t: ItemType) -> None:
