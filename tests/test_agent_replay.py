@@ -70,3 +70,13 @@ def test_replay_catches_a_read_guard_that_lets_secrets_through(tmp_path, monkeyp
     monkeypatch.setattr(session, "read_violation", lambda *a: None)
     transport, *_ = replay(CASSETTES_BY_NAME["shop-from-source"], tmp_path)
     assert any("looks like a secret" in m for m in transport.mismatches)
+
+
+@pytest.mark.parametrize("path", CASSETTES, ids=lambda p: p.stem)
+def test_recorded_session_saw_only_the_workbench_server(path):
+    """Isolation: the CLI loaded no MCP servers or tools besides ours (strict_mcp_config)."""
+    _, entries = load_cassette(path)
+    [init] = [e["msg"] for e in entries if e["msg"].get("subtype") == "init"]
+    assert [s["name"] for s in init["mcp_servers"]] == ["workbench"]
+    mcp_tools = [t for t in init["tools"] if t.startswith("mcp__")]
+    assert all(t.startswith("mcp__workbench__") for t in mcp_tools)

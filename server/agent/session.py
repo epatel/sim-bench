@@ -113,6 +113,7 @@ class AgentSession:
             add_dirs=[path for _, path in sources],
             cwd=str(self.workdir),
             setting_sources=[],  # ignore CLAUDE.md, hooks and permissions on disk
+            strict_mcp_config=True,  # only our server: no claude.ai connectors or user MCP
             skills=[],
             max_turns=MAX_TURNS,
             model=os.environ.get("SIMBENCH_AGENT_MODEL") or None,

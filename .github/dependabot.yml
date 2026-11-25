@@ -1,0 +1,12 @@
+# Keeps the commit-SHA pins in .github/workflows current, and proposes updates to the
+# Python requirements (weekly pull requests; CI and the agent replay tests check them).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly

@@ -245,6 +245,11 @@ requirements.txt   (.venv, gitignored)
   `Transport` (record locally with the real model, replay in CI). Our side runs
   for real and must answer as recorded. This is preferred over mocking the SDK's
   message objects, because the replay also exercises the tool and hook protocol.
+- 2026-11-25: The agent runs with `strict_mcp_config`: no claude.ai connectors or
+  user MCP servers in its session (found in a recorded `init` before publishing).
+- 2026-11-25: The repo is public on GitHub (epatel/sim-bench). CI, Audit
+  (pip-audit) and OpenSSF Scorecard run there, with actions pinned to SHAs and
+  updated by Dependabot.
 - 2026-11-25: Use the agent through `claude-agent-sdk` on the subscription login,
   with `ANTHROPIC_API_KEY` stripped from its environment.
 
@@ -327,8 +332,8 @@ requirements.txt   (.venv, gitignored)
   0.1201 vs measured 0.1198). There are 168 tests.
 - CI is set up: `scripts/check.sh` runs ruff, a JS syntax check, pytest and
   `aihealth delta` (against the PR base or the previous push).
-  `.github/workflows/ci.yml` calls it. The repo has no remote yet, so the
-  workflow has not run on GitHub.
+  `.github/workflows/ci.yml` calls it. The repo is on GitHub (epatel/sim-bench,
+  public) with Audit and Scorecard workflows and README badges.
 - The agent is tested end to end in CI by replaying recorded conversations
   (`tests/cassettes/`, two of them: scale-and-run, and shop-from-source with a
   denied `.env` read). No CLI or login is needed. There are 172 tests.

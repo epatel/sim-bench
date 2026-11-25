@@ -37,6 +37,7 @@ get_model, list_types, add_entity, update_entity, remove_entity, connect, update
 
 - `tools=[]` turns off every built-in tool (Bash, file edits, web). With registered sources it is `["Read", "Grep", "Glob"]`, guarded by a hook (see the sources card). `allowed_tools` lists only the workbench tools, and `can_use_tool` denies anything else.
 - `setting_sources=[]` and `skills=[]` keep the agent from loading this repo's CLAUDE.md, hooks, permissions or skills, which are for developing the workbench, not for using it.
+- `strict_mcp_config=True` limits MCP to our workbench server. Without it the CLI also loads the login's claude.ai connectors and user MCP servers. Those tools were unusable (not allowed, and denied), but they were visible, and they leaked into recordings. `test_recorded_session_saw_only_the_workbench_server` checks every cassette for this.
 - At import time, `strip_api_keys()` removes `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` from the server's environment. The SDK passes the server's environment on to the CLI, and its `env` option can add variables but not remove them, so this is the only way to make sure the CLI uses its own login (the user's subscription). `/api/agent/status` reports which keys were removed.
 - The model is the login's default. Set `SIMBENCH_AGENT_MODEL` to override it. A prompt has at most 40 turns.
 - The SDK includes its own CLI (about 370 MB in `.venv`). If the CLI is not logged in, the error appears in the chat. Run `claude` once and log in.

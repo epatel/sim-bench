@@ -159,6 +159,7 @@ def test_session_is_isolated_and_limited_to_workbench_tools(env):
     s = AgentSession(env, env.notify, workdir=Path(env.libraries_dir).parent / "cwd")
     o = s.options()
     assert o.tools == [] and o.setting_sources == [] and o.skills == [] and o.add_dirs == []
+    assert o.strict_mcp_config  # no claude.ai connectors or user MCP servers
     assert set(o.allowed_tools) == set(agent.tool_names())
     deny = asyncio.run(s.can_use_tool("Bash", {"command": "ls"}, None))
     allow = asyncio.run(s.can_use_tool("mcp__workbench__run", {}, None))
