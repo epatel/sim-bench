@@ -36,7 +36,9 @@ jobs:
       - name: Install
         run: |
           python -m venv .venv
-          .venv/bin/pip install -r requirements-dev.txt
+          # The SDK's source package has no bundled Claude CLI (the wheel's is ~370 MB);
+          # tests replay recorded CLI traffic and never start it.
+          .venv/bin/pip install --no-binary claude-agent-sdk -r requirements-dev.txt
           # pinned like CLAUDE.md says (v0.4.0)
           uv tool install "git+https://github.com/epatel/ai-health@033d1867fe514867d944d9387ee72db0188eed47"
           uv tool dir --bin >> "$GITHUB_PATH"

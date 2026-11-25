@@ -30,7 +30,7 @@ jobs:
       - name: Resolve the runtime dependencies
         run: |
           python -m venv "$RUNNER_TEMP/app"
-          "$RUNNER_TEMP/app/bin/pip" install -q -r requirements.txt
+          "$RUNNER_TEMP/app/bin/pip" install -q --no-binary claude-agent-sdk -r requirements.txt  # skip the bundled CLI
           "$RUNNER_TEMP/app/bin/pip" freeze > "$RUNNER_TEMP/requirements.txt"
           cat "$RUNNER_TEMP/requirements.txt"
       - name: pip-audit
