@@ -8,7 +8,8 @@ REST:
   GET  /api/models                model files under projects/
   GET  /api/models/{path}         one model as JSON
   PUT  /api/models/{path}         validate and save a model as YAML
-  POST /api/validate              check a model; returns ports per entity or the error
+  POST /api/validate              check a model; returns ports per entity and group, or the error
+  POST /api/calibrate             run one group expanded; propose an abstract stand-in
 
 WebSocket /ws/run: one live simulation per connection. See ``RunSession``.
 """
@@ -27,7 +28,15 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from .kernel import Library, LibraryError, ModelError, ModelSpec, Simulation
+from .kernel import (
+    CompositeError,
+    Library,
+    LibraryError,
+    ModelError,
+    ModelSpec,
+    Simulation,
+    suggest_abstract,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 PROJECTS = ROOT / "projects"
@@ -179,6 +188,49 @@ def validate(body: dict[str, Any]) -> dict[str, Any]:
     return {
         "ok": True,
         "ports": {k: {"inputs": i, "outputs": o} for k, (i, o) in sim.ports.items()},
+        "groups": {
+            g.id: {"inputs": list(g.inputs), "outputs": list(g.outputs), "mode": g.mode}
+            for g in sim.model.groups
+        },
+    }
+
+
+CALIBRATE_MAX_EVENTS = 2_000_000
+
+
+@app.post("/api/calibrate")
+def calibrate(body: dict[str, Any]) -> dict[str, Any]:
+    """Run the model with one group expanded and propose an abstract stand-in for it.
+
+    Body: {"model": {...}, "group": id, "until": float, "seed": int}
+    """
+    gid = body.get("group")
+    until = float(body.get("until", 1000.0))
+    seed = int(body.get("seed", 0))
+    try:
+        model = ModelSpec.model_validate(body.get("model"))
+        group = next((g for g in model.groups if g.id == gid), None)
+        if group is None:
+            raise ModelError(f"no group {gid!r}")
+        if not group.inputs or not group.outputs:
+            raise ModelError(f"group {gid!r} needs boundary inputs and outputs to calibrate")
+        groups = [
+            g.model_copy(update={"mode": "expanded"}) if g.id == gid else g for g in model.groups
+        ]
+        _, sim = check_model(model.model_copy(update={"groups": groups}).model_dump(by_alias=True))
+        sim.run(until=until, max_events=CALIBRATE_MAX_EVENTS)
+        summary = sim.summary()
+        probe = summary["groups"][gid]
+        abstract = suggest_abstract(probe, sim.now, seed)
+    except (ModelError, ValidationError, CompositeError) as e:
+        raise HTTPException(422, str(e)) from e
+    return {
+        "group": gid,
+        "measured_until": sim.now,
+        "events": sim.events_processed,
+        "truncated": sim.now < until,
+        "probe": probe,
+        "abstract": abstract,
     }
 
 

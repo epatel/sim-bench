@@ -157,3 +157,59 @@ def test_library_model_validates_and_runs(client):
                 break
         done = frame["summary"]["entities"]["d"]
         assert done["received"]["value"] == 5 and done["item_type"] == "web/response"
+
+
+# --- composites (M4) ---------------------------------------------------------------
+
+
+def grouped_model(client, mode="expanded", abstract=None):
+    frag = client.post(
+        "/api/templates/web/lb-pool/instantiate",
+        json={"args": {"n": 2, "server": "queueing/mm-server"}, "prefix": "p"},
+    ).json()
+    group = {"id": "p", "inputs": frag["inputs"], "outputs": frag["outputs"], "mode": mode}
+    if abstract:
+        group["abstract"] = abstract
+    return {
+        "entities": [
+            {"id": "src", "type": "queueing/poisson-source", "params": {"interarrival": 2}},
+            *frag["entities"],
+            {"id": "out", "type": "sink"},
+        ],
+        "connections": [
+            {"from": "src.out", "to": "p.in"},
+            *frag["connections"],
+            {"from": "p.out", "to": "out.in"},
+        ],
+        "groups": [group],
+    }
+
+
+def test_validate_reports_group_ports(client):
+    res = client.post("/api/validate", json=grouped_model(client)).json()
+    assert res["ok"], res
+    assert res["groups"]["p"] == {"inputs": ["in"], "outputs": ["out"], "mode": "expanded"}
+    abstract = grouped_model(client, "abstract", {"type": "delay", "params": {"delay": 1}})
+    res = client.post("/api/validate", json=abstract).json()
+    assert res["ok"] and res["ports"]["p"] == {"inputs": ["in"], "outputs": ["out"]}
+    assert "p_lb" not in res["ports"]
+
+
+def test_calibrate_proposes_a_stand_in(client):
+    model = grouped_model(client, "abstract", {"type": "delay", "params": {"delay": 99}})
+    r = client.post("/api/calibrate", json={"model": model, "group": "p", "until": 2000, "seed": 1})
+    assert r.status_code == 200, r.text
+    res = r.json()
+    assert res["probe"]["exited"] > 500  # it ran expanded, despite the model saying abstract
+    assert res["abstract"]["type"] == "delay"
+    assert res["abstract"]["calibration"]["arrival_rate"] == pytest.approx(0.5, rel=0.1)
+    bad = client.post("/api/calibrate", json={"model": model, "group": "zzz"})
+    assert bad.status_code == 422
+
+
+def test_saved_model_keeps_groups(client, tmp_path):
+    model = grouped_model(client, "abstract", {"type": "delay", "params": {"delay": 1}})
+    assert client.put("/api/models/g.yaml", json=model).status_code == 200
+    again = client.get("/api/models/g.yaml").json()
+    assert again["groups"][0]["mode"] == "abstract"
+    assert again["groups"][0]["abstract"]["params"] == {"delay": 1}

@@ -176,7 +176,7 @@ requirements.txt   (.venv, gitignored)
   edit parameters, and run, pause or step with animated messages.
 - [x] **M3 Libraries and templates.** YAML type and library format, inheritance,
   palette UI, templates turned into composites, save and load projects.
-- [ ] **M4 Resolution.** Composites, abstract or expanded modes, drill-down UI,
+- [x] **M4 Resolution.** Composites, abstract or expanded modes, drill-down UI,
   focus, and the calibration loop.
 - [ ] **M5 Behaviors.** Tier-2 state machines with an editor/viewer, and tier-3
   Python scripts with the restricted ctx.
@@ -204,6 +204,13 @@ requirements.txt   (.venv, gitignored)
 - 2026-11-25: Templates expand into flat, prefixed entities tagged with
   `group`, not nested sub-models. The kernel stays flat and simple. M4 adds
   composites on top of groups rather than changing the kernel's entity model.
+- 2026-11-25: Composites are one level deep, and abstract stand-ins are tier-1
+  (delay plus loss) fitted at one load. This keeps `flatten` simple. Revisit
+  nesting once tier-2 behaviors exist, because they could provide
+  load-dependent stand-ins.
+- 2026-11-25: code-health uses the global aihealth install
+  (`form: existing`) at the user's request. The pin and the install command are
+  in `CLAUDE.md`.
 - 2026-11-25: Use the agent through `claude-agent-sdk` on the subscription login,
   with `ANTHROPIC_API_KEY` stripped from its environment.
 
@@ -229,11 +236,26 @@ requirements.txt   (.venv, gitignored)
   `group`. The palette is grouped by library, and templates have an argument
   form. There are 50 tests. Project-level library pinning was deferred, because
   every library in `libraries/` is always loaded.
-- Next: M4. Turn groups into composites with boundary ports (the template's
-  `inputs` and `outputs`), abstract or expanded modes, drill-down, and the
-  calibration loop.
+- M4 is done. `groups:` (a `GroupSpec`) turns a group into a composite with
+  boundary ports and an expanded or abstract mode. `flatten` compiles groups
+  away before a run. Boundary probes measure each expanded group, and
+  `/api/calibrate` fits an abstract `delay` stand-in from those measurements.
+  The canvas draws abstract groups as one stacked node (double-click toggles),
+  and the inspector has mode, boundary, stand-in, calibration and Focus
+  controls. In tests, a calibrated stand-in reproduces the expanded latency
+  within 5%. The new example is `projects/examples/composites.yaml`. There are
+  65 tests.
+- The code-health pattern is applied. aihealth 0.4.0 (global install) runs as a
+  post-edit and stop hook and as an MCP server. The baseline score was 7.94, and
+  the M4 changes leave every existing file healthier than before.
+- Next: M5. Tier-2 declarative state machines and tier-3 Python behaviors.
 
 ## Open questions
+
+- Should composites nest (a group inside a group), and how should a nested
+  boundary map onto its parent's boundary?
+- Should calibration also fit a capacity-aware stand-in (`server` with c and a
+  service time), so the stand-in saturates the way the real group does?
 
 - Confirm that Claude subscription terms cover this personal, local use of the
   Agent SDK, and pin a minimum `claude` CLI and SDK version.

@@ -39,6 +39,8 @@ const app = {
   get summary() { return state.summary; },
 
   portsOf(id) {
+    const g = groupSpec(id); // a collapsed group shows its boundary ports
+    if (g) return { inputs: Object.keys(g.inputs || {}), outputs: Object.keys(g.outputs || {}) };
     if (state.ports[id]) return state.ports[id];
     const e = state.model.entities.find((x) => x.id === id);
     const t = e && state.types[e.type];
@@ -49,6 +51,16 @@ const app = {
     const id = uniqueId(kind);
     state.model.entities.push({ id, type: kind, params: {}, pos: pos.map((v) => Math.round(v)) });
     editor.select({ kind: "entity", id });
+    changed();
+  },
+
+  toggleGroup(id) {
+    const g = groupSpec(id);
+    if (!g) return showBanner(`Group ${id} has no boundary yet. Select it and make it a composite first.`);
+    if (g.mode === "abstract") g.mode = "expanded";
+    else if (!g.abstract) return showBanner(`Calibrate or set an abstract behavior for ${id} first.`);
+    else g.mode = "abstract";
+    editor.select({ kind: "group", id });
     changed();
   },
 
@@ -73,6 +85,10 @@ const app = {
           .filter((e) => (sel.kind === "entity" ? e.id === sel.id : e.group === sel.id))
           .map((e) => e.id),
       );
+      if (sel.kind === "group") {
+        gone.add(sel.id); // also drops connections to "group.port"
+        removeGroupSpec(sel.id);
+      }
       state.model.entities = state.model.entities.filter((e) => !gone.has(e.id));
       state.model.connections = state.model.connections.filter(
         (c) => !gone.has(splitRef(c.from)[0]) && !gone.has(splitRef(c.to)[0]),
@@ -120,23 +136,52 @@ async function validateNow() {
   }
 }
 
+// --- groups (composites) ----------------------------------------------------------
+
+function groupSpec(id) {
+  return (state.model.groups || []).find((g) => g.id === id);
+}
+
+function removeGroupSpec(id) {
+  state.model.groups = (state.model.groups || []).filter((g) => g.id !== id);
+}
+
+// Rewrite "group.port" references to the inner ports they map to.
+function inlineBoundaryRefs(g) {
+  for (const c of state.model.connections) {
+    const [fe, fp] = splitRef(c.from);
+    if (fe === g.id && g.outputs?.[fp]) c.from = g.outputs[fp];
+    const [te, tp] = splitRef(c.to);
+    if (te === g.id && g.inputs?.[tp]) c.to = g.inputs[tp];
+  }
+}
+
 function uniqueId(base) {
   const ids = new Set(state.model.entities.map((e) => e.id));
   for (let i = 1; ; i++) if (!ids.has(`${base}${i}`)) return `${base}${i}`;
 }
 
-function renameEntity(oldId, newId) {
-  if (!newId || newId.includes(".") || state.model.entities.some((e) => e.id === newId)) return false;
-  const e = state.model.entities.find((x) => x.id === oldId);
-  e.id = newId;
-  const fix = (ref) => {
-    const [ent, port] = splitRef(ref);
-    return ent === oldId ? `${newId}.${port}` : ref;
-  };
+function isFreeId(id) {
+  return Boolean(id) && !id.includes(".") && !state.model.entities.some((e) => e.id === id);
+}
+
+// Apply `fix` to every "entity.port" reference in the model.
+function rewriteRefs(fix) {
   for (const c of state.model.connections) {
     c.from = fix(c.from);
     c.to = fix(c.to);
   }
+  const sides = (state.model.groups || []).flatMap((g) => [g.inputs || {}, g.outputs || {}]);
+  for (const side of sides) for (const k of Object.keys(side)) side[k] = fix(side[k]);
+}
+
+function renameEntity(oldId, newId) {
+  if (!isFreeId(newId)) return false;
+  state.model.entities.find((x) => x.id === oldId).id = newId;
+  rewriteRefs((ref) => {
+    const [ent, port] = splitRef(ref);
+    return ent === oldId ? `${newId}.${port}` : ref;
+  });
   delete state.ports[oldId];
   editor.selection = { kind: "entity", id: newId };
   changed();
@@ -191,6 +236,7 @@ function layoutFragment(entities, connections, origin) {
 function setModel(model, path) {
   model.entities ??= [];
   model.connections ??= [];
+  model.groups ??= [];
   for (const e of model.entities) e.params ??= {};
   layout(model);
   state.model = model;
@@ -282,30 +328,41 @@ async function insertTemplate(id, args = {}, prefix = null, origin = viewCenter(
   layoutFragment(frag.entities, frag.connections, origin);
   state.model.entities.push(...frag.entities);
   state.model.connections.push(...frag.connections);
+  state.model.groups.push({ id: frag.group, template: id, inputs: frag.inputs, outputs: frag.outputs });
   editor.select({ kind: "group", id: frag.group });
   changed();
 }
 
 // --- inspector -----------------------------------------------------------------
 
+// One inspector per selection kind; each returns false when its target is gone.
+const INSPECTORS = {
+  entity(root, id) {
+    const e = state.model.entities.find((x) => x.id === id);
+    return e && inspectEntity(root, e) !== false;
+  },
+  link(root, id) {
+    const c = state.model.connections.find((x) => linkKey(x) === id);
+    return c && inspectLink(root, c) !== false;
+  },
+  template(root, id) {
+    const t = state.templates[id];
+    return t && inspectTemplate(root, t) !== false;
+  },
+  group(root, id) {
+    const members = state.model.entities.filter((e) => e.group === id);
+    if (!members.length && !groupSpec(id)) return false;
+    inspectGroup(root, id, members);
+    return true;
+  },
+};
+
 function renderInspector() {
   const root = $("inspector");
   root.innerHTML = "";
   const sel = editor.selection;
-  if (sel?.kind === "entity") {
-    const e = state.model.entities.find((x) => x.id === sel.id);
-    if (e) return inspectEntity(root, e);
-  }
-  if (sel?.kind === "link") {
-    const c = state.model.connections.find((x) => linkKey(x) === sel.id);
-    if (c) return inspectLink(root, c);
-  }
-  if (sel?.kind === "template" && state.templates[sel.id]) return inspectTemplate(root, state.templates[sel.id]);
-  if (sel?.kind === "group") {
-    const members = state.model.entities.filter((e) => e.group === sel.id);
-    if (members.length) return inspectGroup(root, sel.id, members);
-  }
-  inspectModel(root);
+  const shown = sel && INSPECTORS[sel.kind]?.(root, sel.id);
+  if (!shown) inspectModel(root);
 }
 
 function inspectTemplate(root, t) {
@@ -334,28 +391,161 @@ function inspectTemplate(root, t) {
   root.append(actions);
 }
 
-function inspectGroup(root, group, members) {
-  root.append(el("h2", {}, "Group"));
+function inspectGroup(root, gid, members) {
+  const g = groupSpec(gid);
+  root.append(el("h2", {}, g ? "Composite" : "Group"));
   const title = el("h3");
-  title.append(el("i", { class: "fa-solid fa-layer-group" }), ` ${group}`);
+  title.append(el("i", { class: "fa-solid fa-layer-group" }), ` ${g?.name || gid}`);
   root.append(title);
-  root.append(el("p", { class: "sub" }, `${members.length} entities. Drag the frame header to move them together.`));
+  if (!g) {
+    root.append(el("p", { class: "sub" }, `A visual group of ${members.length} entities. Make it a composite to give it boundary ports and an abstract mode.`));
+    root.append(groupActions(gid, members, [button("fa-cubes", "Make composite", () => {
+      state.model.groups.push({ id: gid, inputs: {}, outputs: {} });
+      changed();
+    })]));
+    return root.append(membersTable(members));
+  }
+  if (g.template) root.append(el("p", { class: "sub" }, `From template ${g.template}. Double-click it on the canvas to collapse or expand it.`));
+  root.append(modeSwitch(g));
+  root.append(el("h2", {}, "Boundary"));
+  root.append(paramField(g, "inputs", { type: "object", default: {}, help: "boundary port → inner entity.port" }));
+  root.append(paramField(g, "outputs", { type: "object", default: {}, help: "boundary port → inner entity.port" }));
+  root.append(abstractEditor(g));
+  root.append(calibrationPanel(g));
+  root.append(el("h2", {}, "Metrics"), el("div", { id: "metrics" }));
+  renderMetrics();
+  root.append(el("h2", {}, "Members"), membersTable(members));
+  root.append(groupActions(gid, members, [button("fa-crosshairs", "Focus", () => focusGroup(gid), "Expand this group and collapse every other group that has an abstract behavior")]));
+}
+
+function button(icon, label, onclick, title = "") {
+  const b = el("button", { title });
+  b.append(el("i", { class: `fa-solid ${icon}` }), ` ${label}`);
+  b.onclick = onclick;
+  return b;
+}
+
+function membersTable(members) {
   const table = el("table", { class: "metrics" });
   for (const e of members) table.append(row(e.id, e.type));
-  root.append(table);
+  return table;
+}
+
+function groupActions(gid, members, extra = []) {
   const actions = el("div", { class: "row-actions" });
-  const ungroup = el("button", { title: "Keep the entities, drop the frame" });
-  ungroup.append(el("i", { class: "fa-solid fa-object-ungroup" }), " Ungroup");
-  ungroup.onclick = () => {
+  const ungroup = button("fa-object-ungroup", "Ungroup", () => {
+    const g = groupSpec(gid);
+    if (g) {
+      inlineBoundaryRefs(g);
+      removeGroupSpec(gid);
+    }
     for (const e of members) delete e.group;
     editor.select(null);
     changed();
+  }, "Keep the entities, drop the group");
+  const del = button("fa-trash", "Delete all", () => app.deleteSelection());
+  del.classList.add("danger");
+  actions.append(...extra, ungroup, del);
+  return actions;
+}
+
+function modeSwitch(g) {
+  const wrap = el("div", { class: "segmented" });
+  for (const mode of ["expanded", "abstract"]) {
+    const current = g.mode || "expanded";
+    const b = el("button", { class: current === mode ? "on" : "" }, mode);
+    b.disabled = mode === "abstract" && !g.abstract;
+    b.title = b.disabled ? "Calibrate or set an abstract behavior first" : "";
+    b.onclick = () => {
+      g.mode = mode;
+      changed();
+    };
+    wrap.append(b);
+  }
+  return wrap;
+}
+
+function abstractEditor(g) {
+  const box = el("div");
+  box.append(el("h2", {}, "Abstract behavior"));
+  if (!g.abstract) {
+    box.append(el("p", { class: "sub" }, "None yet. Calibrate from an expanded run, or pick a type."));
+  }
+  const f = el("div", { class: "field" });
+  f.append(el("label", {}, "stand-in type"));
+  const s = el("select");
+  s.append(el("option", { value: "" }, "—"));
+  for (const id of Object.keys(state.types)) s.append(el("option", { value: id }, id));
+  s.value = g.abstract?.type || "";
+  s.onchange = () => {
+    if (!s.value) delete g.abstract;
+    else g.abstract = { type: s.value, params: {} };
+    if (!g.abstract && g.mode === "abstract") g.mode = "expanded";
+    changed();
   };
-  const del = el("button", { class: "danger" });
-  del.append(el("i", { class: "fa-solid fa-trash" }), " Delete all");
-  del.onclick = () => app.deleteSelection();
-  actions.append(ungroup, del);
-  root.append(actions);
+  f.append(s);
+  box.append(f);
+  if (g.abstract) {
+    box.append(paramField(g.abstract, "params", { type: "object", default: {}, help: "stand-in parameters" }));
+    const cal = g.abstract.calibration;
+    if (cal) {
+      const t = el("table", { class: "metrics" });
+      t.append(
+        row("calibrated at", `t=${fmt(cal.measured_until)}, seed ${cal.seed}`),
+        row("samples", fmt(cal.samples)),
+        row("arrival rate", fmt(cal.arrival_rate)),
+        row("residence p95", fmt(cal.residence_p95)),
+        row("loss", fmt(cal.loss)),
+      );
+      box.append(t, el("p", { class: "sub" }, cal.note));
+    }
+  }
+  return box;
+}
+
+function calibrationPanel(g) {
+  const box = el("div");
+  box.append(el("h2", {}, "Calibrate"));
+  const opts = { until: 2000 };
+  box.append(paramField(opts, "until", { type: "float", default: 2000, help: "simulated time to measure" }, { silent: true }));
+  const out = el("p", { class: "sub" });
+  const go = button("fa-ruler-combined", "Calibrate from expanded run", () => runCalibration(g, opts, go, out));
+  const actions = el("div", { class: "row-actions" });
+  actions.append(go);
+  box.append(actions, out);
+  return box;
+}
+
+function hasBoundary(g) {
+  return Object.keys(g.inputs || {}).length > 0 && Object.keys(g.outputs || {}).length > 0;
+}
+
+async function runCalibration(g, opts, go, out) {
+  if (!hasBoundary(g)) {
+    out.textContent = "Set boundary inputs and outputs first.";
+    return;
+  }
+  go.disabled = true;
+  out.textContent = "Running…";
+  try {
+    const res = await api.calibrate(state.model, g.id, opts.until ?? 2000, Number($("seed").value) || 0);
+    g.abstract = res.abstract;
+    changed();
+    const early = res.truncated ? " (stopped early: event cap)" : "";
+    showBanner(`Calibrated ${g.id}: mean residence ${fmt(res.probe.residence.mean)} over ${fmt(res.probe.exited)} messages${early}`, "info");
+  } catch (e) {
+    out.textContent = e.message;
+    go.disabled = false;
+  }
+}
+
+function focusGroup(gid) {
+  for (const g of state.model.groups) {
+    if (g.id === gid) g.mode = "expanded";
+    else if (g.abstract) g.mode = "abstract";
+  }
+  editor.select({ kind: "group", id: gid });
+  changed();
 }
 
 function inspectModel(root) {
@@ -518,6 +708,19 @@ function paramField(obj, name, meta, { silent = false } = {}) {
   return f;
 }
 
+// The slice of a run summary that belongs to the current selection.
+const METRICS = {
+  entity: (s, id) => s.entities[id],
+  link: (s, id) => s.links[id],
+  // an abstract group's stand-in has entity metrics; an expanded one has a boundary probe
+  group: (s, id) => (groupSpec(id)?.mode === "abstract" ? s.entities[id] : s.groups?.[id]),
+};
+
+function metricsFor(sel, s) {
+  const pick = sel && METRICS[sel.kind];
+  return pick ? pick(s, sel.id) : { time: s.time, events: s.events, pending: s.pending, seed: s.seed };
+}
+
 function renderMetrics() {
   const root = $("metrics");
   if (!root) return;
@@ -528,10 +731,7 @@ function renderMetrics() {
     root.append(el("p", { class: "empty" }, "Press play to run."));
     return;
   }
-  let data;
-  if (sel?.kind === "entity") data = s.entities[sel.id];
-  else if (sel?.kind === "link") data = s.links[sel.id];
-  else data = { time: s.time, events: s.events, pending: s.pending, seed: s.seed };
+  const data = metricsFor(sel, s);
   if (!data) {
     root.append(el("p", { class: "empty" }, "Not in the running model. Reset to include it."));
     return;

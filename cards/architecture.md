@@ -16,6 +16,7 @@ flowchart LR
 | Path | Status | Owns |
 |---|---|---|
 | `server/kernel/` | built (M1) | Clock, event queue, RNG streams, tier-1 behaviors, links, metrics, snapshot/fork, headless CLI. |
+| `server/kernel/composite.py` | built (M4) | Groups as composites: `flatten` (abstract stand-ins, boundary rewriting), boundary probes, calibration. |
 | `projects/examples/` | built (M1) | Example models in YAML (`mm1.yaml`, `web-backend.yaml`). |
 | `server/app.py`, `web/` | built (M2) | FastAPI REST for models and types, a WebSocket that streams live runs, and the vanilla-JS canvas editor. Font Awesome is vendored. |
 | `libraries/`, `server/kernel/library.py` | built (M3) | Item types (`extends` chains with merged defaults) and parameterized templates, as YAML. |

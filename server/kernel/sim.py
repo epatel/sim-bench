@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .behaviors import BEHAVIORS, Behavior
+from .composite import CompositeError, GroupProbe, flatten
 from .library import Library, LibraryError
 from .metrics import Counter, Gauge, Samples
 from .model import ConnectionSpec, EntitySpec, ModelSpec
@@ -98,6 +99,7 @@ class Context:
         return self._sim.send(self.entity_id, port, msg)
 
     def drop(self, msg: Message, reason: str) -> None:
+        self._sim.message_gone(msg)
         self._sim.emit({"type": "drop", "entity": self.entity_id, "msg": msg.id, "reason": reason})
 
     def schedule(self, delay: float, key: str, data: Any = None) -> None:
@@ -132,6 +134,7 @@ class Link:
         self.metrics.counter("sent").add()
         if not spec.up or (spec.loss and self.rng.random() < spec.loss):
             self.metrics.counter("lost").add()
+            sim.message_gone(msg)
             sim.emit({"type": "lost", "link": self.key, "msg": msg.id})
             return
         depart = now
@@ -156,7 +159,11 @@ class Simulation:
         behaviors: dict[str, type[Behavior]] | None = None,
         library: Library | None = None,
     ) -> None:
-        self.model = model
+        self.model = model  # as written, with groups
+        try:
+            self.flat, boundary = flatten(model)
+        except CompositeError as e:
+            raise ModelError(str(e)) from e
         self.seed = seed
         self.now = 0.0
         self.events_processed = 0
@@ -170,29 +177,52 @@ class Simulation:
 
         self.entities: dict[str, Behavior] = {}
         self.ports: dict[str, tuple[list[str], list[str]]] = {}
-        for spec in model.entities:
-            if spec.id in self.entities:
-                raise ModelError(f"duplicate entity id {spec.id!r}")
-            try:
-                resolved = self.library.resolve(spec.type)
-            except LibraryError as e:
-                raise ModelError(f"entity {spec.id!r}: {e}") from e
-            params = {**resolved.defaults, **copy.deepcopy(spec.params)}
-            self.ports[spec.id] = resolved.behavior.ports(params)
-            self.entities[spec.id] = resolved.behavior(Context(self, spec, params))
-
+        for spec in self.flat.entities:
+            self._add_entity(spec)
         self.links: dict[str, Link] = {}
         self._out: dict[tuple[str, str], Link] = {}
-        for conn in model.connections:
-            src = self._check_port(conn.src, out=True)
-            self._check_port(conn.dst, out=False)
-            if src in self._out:
-                raise ModelError(f"output {conn.source} is connected more than once")
-            if conn.key() in self.links:
-                raise ModelError(f"duplicate connection {conn.key()!r}")
-            link = Link(self, conn)
-            self.links[link.key] = link
-            self._out[src] = link
+        for conn in self.flat.connections:
+            self._add_link(conn)
+        # Boundary probes for expanded groups (kept on the sim so snapshots carry them).
+        self.probes: dict[str, GroupProbe] = {}
+        self._probe_in = self._attach_probes(boundary.inputs)
+        self._probe_out = self._attach_probes(boundary.outputs)
+
+    def _add_entity(self, spec: EntitySpec) -> None:
+        if spec.id in self.entities:
+            raise ModelError(f"duplicate entity id {spec.id!r}")
+        try:
+            resolved = self.library.resolve(spec.type)
+        except LibraryError as e:
+            raise ModelError(f"entity {spec.id!r}: {e}") from e
+        params = {**resolved.defaults, **copy.deepcopy(spec.params)}
+        self.ports[spec.id] = resolved.behavior.ports(params)
+        self.entities[spec.id] = resolved.behavior(Context(self, spec, params))
+
+    def _add_link(self, conn: ConnectionSpec) -> None:
+        src = self._check_port(conn.src, out=True)
+        self._check_port(conn.dst, out=False)
+        if src in self._out:
+            raise ModelError(f"output {conn.source} is connected more than once")
+        if conn.key() in self.links:
+            raise ModelError(f"duplicate connection {conn.key()!r}")
+        link = Link(self, conn)
+        self.links[link.key] = link
+        self._out[src] = link
+
+    def _attach_probes(self, mapping) -> dict[tuple[str, str], list[GroupProbe]]:
+        """Map each boundary inner port to its group's probe (one probe per group)."""
+        table: dict[tuple[str, str], list[GroupProbe]] = {}
+        for inner, (gid, _) in mapping.items():
+            if gid not in self.probes:
+                self.probes[gid] = GroupProbe(gid, self.rngs.stream(f"probe:{gid}"), 0.0)
+            table.setdefault(inner, []).append(self.probes[gid])
+        return table
+
+    def message_gone(self, msg: Message) -> None:
+        """A message was dropped, lost or unrouted: close it in any probe that holds it."""
+        for probe in self.probes.values():
+            probe.gone(msg.id)
 
     def _check_port(self, ref, out: bool) -> tuple[str, str]:
         if ref.entity not in self.ports:
@@ -217,9 +247,12 @@ class Simulation:
         return Message(self._msg_seq, payload, self.now, origin, size)
 
     def send(self, entity: str, port: str, msg: Message) -> bool:
+        for probe in self._probe_out.get((entity, port), ()):
+            probe.exit(msg.id, self.now)
         link = self._out.get((entity, port))
         if link is None:
             self.entities[entity].ctx.counter("unrouted").add()
+            self.message_gone(msg)
             self.emit({"type": "unrouted", "entity": entity, "port": port, "msg": msg.id})
             return False
         msg.hops += 1
@@ -266,6 +299,8 @@ class Simulation:
                     "msg": ev.data.id,
                 }
             )
+            for probe in self._probe_in.get((ev.entity, ev.key), ()):
+                probe.enter(ev.data.id, self.now)
             target.on_message(ev.key, ev.data)
         else:
             target.on_timer(ev.key, ev.data)
@@ -315,6 +350,7 @@ class Simulation:
             "pending": len(self._queue),
             "entities": entities,
             "links": links,
+            "groups": {gid: p.summary(self.now) for gid, p in self.probes.items()},
         }
 
     # --- snapshot / fork --------------------------------------------------

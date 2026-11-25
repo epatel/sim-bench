@@ -170,16 +170,27 @@ class Delay(Behavior):
     icon = "fa-hourglass-half"
     params_schema = {
         "delay": {"type": "dist", "default": 0.0, "help": "hold time per message"},
+        "error_rate": {"type": "float", "default": 0.0, "help": "probability a message is lost"},
     }
 
     @classmethod
     def ports(cls, params):
         return ["in"], ["out"]
 
+    def on_start(self) -> None:
+        self.ctx.counter("passed")
+        self.ctx.counter("errors")
+
     def on_message(self, port, msg):
         self.ctx.schedule(sample(self.ctx.params.get("delay", 0.0), self.ctx.rng), "out", msg)
 
     def on_timer(self, key, data):
+        error_rate = float(self.ctx.params.get("error_rate") or 0.0)
+        if error_rate and self.ctx.rng.random() < error_rate:
+            self.ctx.counter("errors").add()
+            self.ctx.drop(data, "error")
+            return
+        self.ctx.counter("passed").add()
         self.ctx.send("out", data)
 
 

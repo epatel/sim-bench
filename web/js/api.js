@@ -20,6 +20,7 @@ export const api = {
   getModel: (path) => request("GET", `/api/models/${path}`),
   saveModel: (path, model) => request("PUT", `/api/models/${path}`, model),
   validate: (model) => request("POST", "/api/validate", model),
+  calibrate: (model, group, until, seed) => request("POST", "/api/calibrate", { model, group, until, seed }),
 };
 
 // One live simulation on the server. Emits "loaded", "frame", "error", "closed".

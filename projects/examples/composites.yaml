@@ -1,0 +1,80 @@
+name: composites
+description: 'Users hit a load-balanced app pool, which reads through a cached database. Both blocks are
+  composites: calibrate one, collapse it, and compare.'
+entities:
+- id: users
+  type: web/client
+  pos: [0.0, 150.0]
+- id: net
+  type: web/network
+  pos: [180.0, 150.0]
+- id: pool_lb
+  type: web/load-balancer
+  params:
+    routes: {s1: 1, s2: 1, s3: 1}
+  pos: [360.0, 40.0]
+  group: pool
+- id: pool_s1
+  type: web/app-server
+  pos: [560.0, 40.0]
+  group: pool
+- id: pool_s2
+  type: web/app-server
+  pos: [560.0, 150.0]
+  group: pool
+- id: pool_s3
+  type: web/app-server
+  pos: [560.0, 260.0]
+  group: pool
+- id: pool_join
+  type: delay
+  pos: [760.0, 40.0]
+  group: pool
+- id: data_cache
+  type: web/cache
+  params:
+    routes: {hit: 0.8, miss: 0.19999999999999996}
+  pos: [1000.0, 80.0]
+  group: data
+- id: data_hit
+  type: delay
+  params: {delay: 0.002}
+  pos: [1200.0, 80.0]
+  group: data
+- id: data_db
+  type: web/database
+  pos: [1200.0, 190.0]
+  group: data
+- id: data_join
+  type: delay
+  pos: [1400.0, 80.0]
+  group: data
+- id: done
+  type: web/response
+  pos: [1620.0, 150.0]
+connections:
+- {from: users.out, to: net.in}
+- {from: net.out, to: pool.in}
+- {from: pool_lb.s1, to: pool_s1.in}
+- {from: pool_lb.s2, to: pool_s2.in}
+- {from: pool_lb.s3, to: pool_s3.in}
+- {from: pool_s1.out, to: pool_join.in}
+- {from: pool_s2.out, to: pool_join.in}
+- {from: pool_s3.out, to: pool_join.in}
+- {from: pool.out, to: data.in, latency: 0.002}
+- {from: data_cache.hit, to: data_hit.in}
+- {from: data_cache.miss, to: data_db.in}
+- {from: data_hit.out, to: data_join.in}
+- {from: data_db.out, to: data_join.in}
+- {from: data.out, to: done.in, latency: 0.001}
+groups:
+- id: pool
+  name: App pool
+  template: web/lb-pool
+  inputs: {in: pool_lb.in}
+  outputs: {out: pool_join.out}
+- id: data
+  name: Data tier
+  template: web/cached-db
+  inputs: {in: data_cache.in}
+  outputs: {out: data_join.out}

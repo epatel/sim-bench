@@ -7,7 +7,7 @@ The kernel builds runtime objects from it (see ``sim.Simulation``).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -72,6 +72,46 @@ class ConnectionSpec(BaseModel):
         return self.id or f"{self.source}->{self.target}"
 
 
+class AbstractSpec(BaseModel):
+    """The single entity that stands in for a group in abstract mode."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    # Where the numbers came from (set by calibration); informational only.
+    calibration: dict[str, Any] | None = None
+
+
+class GroupSpec(BaseModel):
+    """A composite: the entities whose ``group`` is this id, seen from outside.
+
+    ``inputs`` / ``outputs`` map boundary port names to inner ports
+    ("entity.port"). Outside connections may target either the inner port or
+    ``<group id>.<boundary port>``. In ``abstract`` mode the members are
+    replaced by one entity of type ``abstract.type`` whose ports must include
+    the boundary port names.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str | None = None
+    template: str | None = None  # template it was created from, if any
+    inputs: dict[str, str] = Field(default_factory=dict)
+    outputs: dict[str, str] = Field(default_factory=dict)
+    mode: Literal["expanded", "abstract"] = "expanded"
+    abstract: AbstractSpec | None = None
+    pos: tuple[float, float] | None = None  # collapsed node position on the canvas
+
+    @field_validator("id")
+    @classmethod
+    def _id_has_no_dot(cls, v: str) -> str:
+        if "." in v or not v:
+            raise ValueError(f"group id {v!r} must be non-empty and contain no '.'")
+        return v
+
+
 class ModelSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -79,6 +119,7 @@ class ModelSpec(BaseModel):
     description: str = ""
     entities: list[EntitySpec] = Field(default_factory=list)
     connections: list[ConnectionSpec] = Field(default_factory=list)
+    groups: list[GroupSpec] = Field(default_factory=list)
 
     def entity(self, entity_id: str) -> EntitySpec:
         for e in self.entities:

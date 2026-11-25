@@ -46,7 +46,7 @@ outputs: {out: join.out}
 - A string that is exactly `{expr}` is replaced by the raw value. This keeps a distribution dict as a dict, and `{1 - hit_ratio}` as a number.
 - `repeat: <expr>` emits the entry for i = 1..N. `{$each: <expr>, key, value}` builds a mapping.
 - `instantiate(id, args, prefix)` prefixes every entity id with `<prefix>_`, sets `group: <prefix>`, and returns `{entities, connections, inputs, outputs, group}`. The UI picks a prefix that is not yet used and lays the fragment out at the drop point.
-- `group` is only a visual frame for now. M4 will turn groups into real composites with boundary ports, using `inputs` and `outputs`.
+- The UI also adds a `GroupSpec` built from the template's `inputs` and `outputs`, so an inserted template is a composite that can be collapsed or calibrated.
 
 ## API and UI
 

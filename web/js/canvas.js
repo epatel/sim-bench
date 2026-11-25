@@ -57,7 +57,7 @@ export class Editor extends EventTarget {
   }
 
   fit() {
-    const ents = this.app.model.entities;
+    const ents = this.nodes();
     const r = this.canvas.getBoundingClientRect();
     if (!ents.length) { this.view = { x: r.width / 2, y: r.height / 2, scale: 1 }; return; }
     const xs = ents.map((e) => e.pos[0]), ys = ents.map((e) => e.pos[1]);
@@ -83,19 +83,72 @@ export class Editor extends EventTarget {
     };
   }
 
+  // --- view layer: abstract groups are drawn as one collapsed node -------
+
+  groupSpecs() {
+    return new Map((this.app.model.groups || []).map((g) => [g.id, g]));
+  }
+
+  // Visible nodes: entities outside abstract groups, plus one node per abstract group.
+  abstractSpecOf(entity) {
+    const g = entity.group && this.groupSpecs().get(entity.group);
+    return g?.mode === "abstract" ? g : null;
+  }
+
+  nodes() {
+    const visible = this.app.model.entities.filter((e) => !this.abstractSpecOf(e));
+    const collapsed = [...this.groupSpecs().values()]
+      .filter((g) => g.mode === "abstract")
+      .map((g) => this.collapsedNode(g));
+    return visible.concat(collapsed);
+  }
+
+  collapsedNode(g) {
+    const members = this.app.model.entities.filter((e) => e.group === g.id);
+    if (!g.pos) g.pos = centroid(members);
+    return {
+      id: g.id, name: g.name, type: g.abstract?.type || "?", pos: g.pos,
+      collapsed: true, spec: g, count: members.length,
+    };
+  }
+
+  // Map a connection end to the visible [node id, port], or null if it is hidden.
+  endpoint(ref, isOut) {
+    const [ent, port] = splitRef(ref);
+    const g = this.groupSpecs().get(ent);
+    if (g) return this.groupEndpoint(g, port, isOut);
+    const e = this.app.model.entities.find((x) => x.id === ent);
+    const owner = e && this.abstractSpecOf(e);
+    return owner ? this.boundaryEndpoint(owner, ref, isOut) : [ent, port];
+  }
+
+  // "group.port": the collapsed node's port, or the inner port it maps to.
+  groupEndpoint(g, port, isOut) {
+    if (g.mode === "abstract") return [g.id, port];
+    const inner = (isOut ? g.outputs : g.inputs)?.[port];
+    return inner ? splitRef(inner) : null;
+  }
+
+  // An inner port of a collapsed group: its boundary port, or null (an internal link).
+  boundaryEndpoint(g, ref, isOut) {
+    const mapping = (isOut ? g.outputs : g.inputs) || {};
+    const name = Object.keys(mapping).find((k) => mapping[k] === ref);
+    return name ? [g.id, name] : null;
+  }
+
   linkEnds(conn) {
-    const [se, sp] = splitRef(conn.from), [de, dp] = splitRef(conn.to);
-    const a = this.entity(se), b = this.entity(de);
-    if (!a || !b) return null;
-    return [this.portPos(a, sp, true), this.portPos(b, dp, false)];
+    const a = this.endpoint(conn.from, true), b = this.endpoint(conn.to, false);
+    const na = a && this.entity(a[0]), nb = b && this.entity(b[0]);
+    if (!na || !nb) return null;
+    return [this.portPos(na, a[1], true), this.portPos(nb, b[1], false)];
   }
 
   entity(id) {
-    return this.app.model.entities.find((e) => e.id === id);
+    return this.nodes().find((e) => e.id === id);
   }
 
   hitEntity(p) {
-    const ents = this.app.model.entities;
+    const ents = this.nodes();
     for (let i = ents.length - 1; i >= 0; i--) {
       const e = ents[i];
       if (p.x >= e.pos[0] && p.x <= e.pos[0] + NODE_W && p.y >= e.pos[1] && p.y <= e.pos[1] + NODE_H) return e;
@@ -106,8 +159,9 @@ export class Editor extends EventTarget {
   // group name -> {x, y, w, h, members} framing its entities (header strip on top)
   groups() {
     const out = new Map();
+    const specs = this.groupSpecs();
     for (const e of this.app.model.entities) {
-      if (!e.group) continue;
+      if (!e.group || specs.get(e.group)?.mode === "abstract") continue;
       const g = out.get(e.group) || { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity, members: [] };
       g.x0 = Math.min(g.x0, e.pos[0]);
       g.y0 = Math.min(g.y0, e.pos[1]);
@@ -134,7 +188,7 @@ export class Editor extends EventTarget {
 
   hitPort(p) {
     const r = (PORT_R + 5) / Math.min(1, this.view.scale);
-    for (const e of this.app.model.entities) {
+    for (const e of this.nodes()) {
       const ports = this.app.portsOf(e.id);
       for (const [list, isOut] of [[ports.outputs, true], [ports.inputs, false]]) {
         for (const port of list) {
@@ -173,6 +227,13 @@ export class Editor extends EventTarget {
         this.app.deleteSelection();
       }
     });
+    cv.addEventListener("dblclick", (ev) => {
+      const p = this.toWorld(ev);
+      const header = this.hitGroupHeader(p);
+      const ent = header ? null : this.hitEntity(p);
+      if (header) this.app.toggleGroup(header.name);
+      else if (ent?.collapsed) this.app.toggleGroup(ent.id);
+    });
     cv.addEventListener("dragover", (ev) => ev.preventDefault());
     cv.addEventListener("drop", (ev) => {
       ev.preventDefault();
@@ -206,7 +267,7 @@ export class Editor extends EventTarget {
     }
     const ent = this.hitEntity(p);
     if (ent) {
-      this.select({ kind: "entity", id: ent.id });
+      this.select({ kind: ent.collapsed ? "group" : "entity", id: ent.id });
       this.drag = { kind: "move", entity: ent, dx: p.x - ent.pos[0], dy: p.y - ent.pos[1], moved: false };
       return;
     }
@@ -220,28 +281,11 @@ export class Editor extends EventTarget {
   }
 
   onMove(ev) {
-    if (!this.drag) {
-      if (ev.target === this.canvas) {
-        this.hoverPort = this.hitPort(this.toWorld(ev));
-        this.canvas.style.cursor = this.hoverPort?.isOut ? "crosshair" : "default";
-      }
-      return;
-    }
-    const p = this.toWorld(ev);
-    if (this.drag.kind === "pan") {
-      this.view.x = this.drag.vx + ev.clientX - this.drag.sx;
-      this.view.y = this.drag.vy + ev.clientY - this.drag.sy;
-    } else if (this.drag.kind === "move") {
-      this.drag.entity.pos = [snap(p.x - this.drag.dx), snap(p.y - this.drag.dy)];
-      this.drag.moved = true;
-    } else if (this.drag.kind === "move-group") {
-      const dx = snap(p.x - this.drag.start.x), dy = snap(p.y - this.drag.start.y);
-      this.drag.members.forEach((e, i) => {
-        e.pos = [this.drag.origins[i][0] + dx, this.drag.origins[i][1] + dy];
-      });
-    } else if (this.drag.kind === "link") {
-      this.drag.to = p;
-      this.hoverPort = this.hitPort(p);
+    if (this.drag) {
+      DRAGS[this.drag.kind].call(this, this.drag, this.toWorld(ev), ev);
+    } else if (ev.target === this.canvas) {
+      this.hoverPort = this.hitPort(this.toWorld(ev));
+      this.canvas.style.cursor = this.hoverPort?.isOut ? "crosshair" : "default";
     }
   }
 
@@ -324,7 +368,7 @@ export class Editor extends EventTarget {
     const conns = new Map(this.app.model.connections.map((c) => [linkKey(c), c]));
     for (const conn of conns.values()) this.drawLink(conn);
     this.drawFlights(conns);
-    for (const e of this.app.model.entities) this.drawEntity(e);
+    for (const e of this.nodes()) this.drawEntity(e);
     this.drawFlashes(conns);
 
     if (this.drag?.kind === "link") {
@@ -457,21 +501,48 @@ export class Editor extends EventTarget {
     }
   }
 
+  isSelected(e) {
+    const kind = e.collapsed ? "group" : "entity";
+    return this.selection?.kind === kind && this.selection.id === e.id;
+  }
+
   drawEntity(e) {
+    const selected = this.isSelected(e);
+    if (e.collapsed) this.drawStackedBack(e, selected);
+    this.drawCard(e, selected);
+    this.drawIcon(e);
+    this.drawLabels(e);
+    const stats = this.app.summary?.entities?.[e.id];
+    if (stats) this.drawBadges(e, stats);
+    this.drawPorts(e);
+  }
+
+  // A second card behind a collapsed group: this node stands in for many.
+  drawStackedBack(e, selected) {
+    const { ctx } = this;
+    ctx.fillStyle = "#141a22";
+    ctx.strokeStyle = selected ? C.select : "#4a3d22";
+    ctx.lineWidth = 1;
+    roundRect(ctx, e.pos[0] + 5, e.pos[1] - 5, NODE_W, NODE_H, 9);
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  drawCard(e, selected) {
+    const { ctx } = this;
+    const idle = e.collapsed ? "#7a6330" : C.nodeLine;
+    ctx.fillStyle = C.node;
+    ctx.strokeStyle = selected ? C.select : idle;
+    ctx.lineWidth = selected ? 2 : 1;
+    roundRect(ctx, e.pos[0], e.pos[1], NODE_W, NODE_H, 9);
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  drawIcon(e) {
     const { ctx } = this;
     const [x, y] = e.pos;
     const type = this.app.types[e.type];
-    const selected = this.selection?.kind === "entity" && this.selection.id === e.id;
-    const stats = this.app.summary?.entities?.[e.id];
-
-    ctx.fillStyle = C.node;
-    ctx.strokeStyle = selected ? C.select : C.nodeLine;
-    ctx.lineWidth = selected ? 2 : 1;
-    roundRect(ctx, x, y, NODE_W, NODE_H, 9);
-    ctx.fill();
-    ctx.stroke();
-
-    // icon
     ctx.fillStyle = "#231d10";
     ctx.beginPath();
     ctx.arc(x + 24, y + NODE_H / 2, 15, 0, Math.PI * 2);
@@ -481,42 +552,40 @@ export class Editor extends EventTarget {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(glyph(type?.icon || "fa-circle-question"), x + 24, y + NODE_H / 2 + 1);
+  }
 
-    // labels
+  drawLabels(e) {
+    const { ctx } = this;
+    const [x, y] = e.pos;
+    const subtitle = e.collapsed ? `${e.count} items · abstract` : e.type;
     ctx.textAlign = "left";
     ctx.fillStyle = C.text;
     ctx.font = "600 12.5px -apple-system, Segoe UI, sans-serif";
     ctx.fillText(clip(ctx, e.name || e.id, NODE_W - 52), x + 46, y + 22);
     ctx.fillStyle = C.muted;
     ctx.font = "11px -apple-system, Segoe UI, sans-serif";
-    ctx.fillText(e.type, x + 46, y + 39);
-
-    if (stats) this.drawBadges(e, stats);
-    this.drawPorts(e);
+    ctx.fillText(clip(ctx, subtitle, NODE_W - 52), x + 46, y + 39);
   }
 
   drawBadges(e, s) {
     const { ctx } = this;
     const [x, y] = e.pos;
-    let text = "";
-    if (s.type === "source") text = `${fmt(s.emitted?.value)} sent`;
-    else if (s.type === "server") text = `q ${fmt(s.queue?.value)} · ${Math.round((s.utilization || 0) * 100)}% busy`;
-    else if (s.type === "sink") text = `${fmt(s.received?.value)} · ${fmt(s.latency?.mean)} lat`;
-    if (s.dropped?.value || s.errors?.value) text += `  ✕${fmt((s.dropped?.value || 0) + (s.errors?.value || 0))}`;
-    if (s.unrouted?.value) text += `  ⚠ ${fmt(s.unrouted.value)} unrouted`;
+    const text = badgeText(e, s);
     if (text) {
       ctx.font = "10.5px ui-monospace, Menlo, monospace";
       ctx.fillStyle = C.muted;
       ctx.textAlign = "left";
       ctx.fillText(text, x + 2, y + NODE_H + 13);
     }
-    if (s.type === "server") {
-      const u = Math.min(1, s.utilization || 0);
-      ctx.fillStyle = "#222a35";
-      ctx.fillRect(x + 8, y + NODE_H - 6, NODE_W - 16, 3);
-      ctx.fillStyle = u > 0.9 ? C.bad : u > 0.7 ? C.accent : C.ok;
-      ctx.fillRect(x + 8, y + NODE_H - 6, (NODE_W - 16) * u, 3);
-    }
+    if (s.type === "server") this.drawUtilization(x, y, Math.min(1, s.utilization || 0));
+  }
+
+  drawUtilization(x, y, u) {
+    const { ctx } = this;
+    ctx.fillStyle = "#222a35";
+    ctx.fillRect(x + 8, y + NODE_H - 6, NODE_W - 16, 3);
+    ctx.fillStyle = utilizationColor(u);
+    ctx.fillRect(x + 8, y + NODE_H - 6, (NODE_W - 16) * u, 3);
   }
 
   drawPorts(e) {
@@ -567,6 +636,57 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.roundRect(x, y, w, h, r);
 }
 
+// What a mouse move does for each kind of drag (called with `this` = the Editor).
+const DRAGS = {
+  pan(d, p, ev) {
+    this.view.x = d.vx + ev.clientX - d.sx;
+    this.view.y = d.vy + ev.clientY - d.sy;
+  },
+  move(d, p) {
+    d.entity.pos = [snap(p.x - d.dx), snap(p.y - d.dy)];
+    if (d.entity.collapsed) d.entity.spec.pos = d.entity.pos;
+    d.moved = true;
+  },
+  "move-group"(d, p) {
+    const dx = snap(p.x - d.start.x), dy = snap(p.y - d.start.y);
+    d.members.forEach((e, i) => {
+      e.pos = [d.origins[i][0] + dx, d.origins[i][1] + dy];
+    });
+  },
+  link(d, p) {
+    d.to = p;
+    this.hoverPort = this.hitPort(p);
+  },
+};
+
+// One-line live summary under a node, by behavior kind.
+const BADGES = {
+  source: (s) => `${fmt(s.emitted?.value)} sent`,
+  server: (s) => `q ${fmt(s.queue?.value)} · ${Math.round((s.utilization || 0) * 100)}% busy`,
+  sink: (s) => `${fmt(s.received?.value)} · ${fmt(s.latency?.mean)} lat`,
+  delay: (s, e) => (e.collapsed ? `${fmt(s.passed?.value)} passed` : ""),
+};
+
+function badgeText(e, s) {
+  let text = BADGES[s.type]?.(s, e) || "";
+  const failed = (s.dropped?.value || 0) + (s.errors?.value || 0);
+  if (failed) text += `  ✕${fmt(failed)}`;
+  if (s.unrouted?.value) text += `  ⚠ ${fmt(s.unrouted.value)} unrouted`;
+  return text;
+}
+
+function utilizationColor(u) {
+  if (u > 0.9) return C.bad;
+  return u > 0.7 ? C.accent : C.ok;
+}
+
+function centroid(entities) {
+  if (!entities.length) return [0, 0];
+  const x = entities.reduce((a, e) => a + e.pos[0], 0) / entities.length;
+  const y = entities.reduce((a, e) => a + e.pos[1], 0) / entities.length;
+  return [snap(x), snap(y)];
+}
+
 function snap(v) {
   return Math.round(v / 8) * 8;
 }
@@ -579,6 +699,7 @@ function clip(ctx, text, max) {
 
 export function fmt(v) {
   if (v === undefined || v === null || Number.isNaN(v)) return "–";
+  if (typeof v !== "number") return String(v); // e.g. item_type in a summary
   if (Number.isInteger(v)) return v.toLocaleString("en-US");
   const a = Math.abs(v);
   if (a >= 100) return v.toFixed(0);
