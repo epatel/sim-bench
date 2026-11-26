@@ -32,7 +32,8 @@ Actions (each a one-key mapping, run in order):
                                    state, start the timer in its `enter`.
     if: expr, then: [..], else: [..]
     count: name                    add 1 to a counter metric
-    observe: {name: expr}          add a sample to a metric
+    observe: {name: expr}          add a sample to a metric (mean, p95 over events)
+    gauge: {name: expr}            set a level metric (average and peak over time)
     push: var                      append the current message to a list variable
     pop: var                       take the oldest message from a list variable
     release: {from: var, to: port} send every message in a list variable, oldest first
@@ -59,7 +60,7 @@ from .rng import sample
 
 VERBS = (
     "send", "emit", "drop", "set", "goto", "after", "if",
-    "count", "observe", "push", "pop", "release",
+    "count", "observe", "gauge", "push", "pop", "release",
 )  # fmt: skip
 MAX_TRANSITIONS = 50  # per event, to stop goto loops
 
@@ -189,6 +190,10 @@ class _Checker:
 
     def _observe(self, where, a):
         for v in (a["observe"] or {}).values():
+            self.expr(where, v)
+
+    def _gauge(self, where, a):
+        for v in (a["gauge"] or {}).values():
             self.expr(where, v)
 
     def _push(self, where, a):
@@ -399,6 +404,10 @@ class _Run:
     def _observe(self, a):
         for name, v in a["observe"].items():
             self.ctx.samples(name).add(float(self.eval(v)))
+
+    def _gauge(self, a):
+        for name, v in a["gauge"].items():
+            self.ctx.gauge(name).set(float(self.eval(v)), self.ctx.now)
 
     def _push(self, a):
         msg = self.take()

@@ -38,12 +38,13 @@ machine: |
 - Templates substitute `{expr}` in strings, so a machine script inside a template must not use `{...}` payloads. Keep machines in types.
 - The agent's `define_type` tool still takes a mapping. Changing its schema or description changes recorded tool listings, so it needs the cassettes re-recorded.
 
-- Actions: `send`, `emit`, `drop`, `set`, `goto`, `after`, `if`/`then`/`else`, `count`, `observe`, `push`, `pop`, `release`.
+- Actions: `send`, `emit`, `drop`, `set`, `goto`, `after`, `if`/`then`/`else`, `count`, `observe`, `gauge`, `push`, `pop`, `release`.
+- `observe x` adds a sample per event, so its mean leans towards busy periods. `gauge x` sets a level, so its `avg` is over time and its `peak` the highest level. Use a gauge for populations, queue lengths and other levels, and `observe` for per-event values such as a wait.
 - `goto` ends the current action list. Then the old state's `exit` actions run, then the new state's `enter` actions. A single event allows at most 50 transitions, to catch goto loops.
 - A timer belongs to the state that was current when it was set. Leaving that state cancels it, and a message it was holding is dropped as `timer <event> cancelled`. To time a state, start the timer in the state's `enter`. `keep: true` makes a timer survive state changes.
 - A message that a handler neither sends, drops, pushes nor holds is **absorbed**. It is counted and dropped with reason `absorbed`, which the canvas doesn't flash. A message with no handler is `unhandled`.
 - A runtime error drops the message, increments `errors` and sets `last_error`. The run continues.
-- Metrics: `in_<state>` is a time-weighted gauge (its `avg` is the fraction of time spent in that state). There are also `transitions`, `absorbed`, `unhandled` and `errors`. `summary_extra` adds `state`, `states` and `vars`.
+- Metrics: `in_<state>` is a time-weighted gauge (its `avg` is the fraction of time spent in that state). The inspector shows it as a percentage on each state chip instead of a row. A self-`goto` counts as a transition and stays in the state. There are also `transitions`, `absorbed`, `unhandled` and `errors`. `summary_extra` adds `state`, `states` and `vars`.
 - The type's own params (`threshold`...) are expression names. `/api/types` exposes them as editable fields.
 - Shipped examples: `web/circuit-breaker` and `queueing/batcher`. `projects/examples/resilience.yaml` shows them working together. `ecology/rabbits` and `ecology/foxes` are population machines.
 - **Gillespie pattern** (the ecology types): in the state's `enter`, draw the time to the next event as `exponential(1 / total_rate)`; when it fires, pick which event happened with `random()`, update the counts, and `goto` the same state. The self-`goto` cancels the old timer (timers belong to a state *generation*), so any message that changes a rate can also just `goto` the state to redraw. Use `keep: true` for timers that must survive this, such as a periodic report.

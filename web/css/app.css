@@ -227,3 +227,4 @@ details.lib[open] > summary::before { transform: rotate(90deg); }
 .snippet span.hot { color: var(--text); background: #2a2312; }
 
 textarea.code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.45; white-space: pre; tab-size: 2; }
+.chip .share { opacity: 0.7; font-variant-numeric: tabular-nums; }

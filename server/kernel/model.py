@@ -42,6 +42,9 @@ class EntitySpec(BaseModel):
     group: str | None = None
     # Where its behavior came from in another project: "source:path/file.py:120[-140]".
     source: list[str] | None = None
+    # Canvas only: place ports on the border facing what they link to (else inputs left,
+    # outputs right). None, not False, when off, so models and tool output omit it.
+    dynamic_ports: bool | None = None
 
     @field_validator("id")
     @classmethod

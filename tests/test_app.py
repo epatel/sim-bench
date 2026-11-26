@@ -61,6 +61,11 @@ def test_validate_reports_ports_or_error(client):
     assert ok["ok"] and ok["ports"]["gen"] == {"inputs": [], "outputs": ["out"]}
     bad = client.post("/api/validate", json={"entities": [{"id": "a", "type": "zzz"}]}).json()
     assert not bad["ok"] and "unknown type" in bad["error"]
+    dynamic = {
+        **MODEL,
+        "entities": [{**MODEL["entities"][0], "dynamic_ports": True}, *MODEL["entities"][1:]],
+    }
+    assert client.post("/api/validate", json=dynamic).json()["ok"]  # a canvas-only setting
     bad = client.post("/api/validate", json={**MODEL, "globals": "x = 1\ny ="}).json()
     assert not bad["ok"] and bad["error"].startswith("globals: line 2")
 

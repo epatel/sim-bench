@@ -28,7 +28,7 @@ machine: |
 
   state alive:
     enter:
-      observe rabbits
+      gauge rabbits  # the population over time (avg, peak)
       if rabbits <= 0:
         goto extinct
       else:

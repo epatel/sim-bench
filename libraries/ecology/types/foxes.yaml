@@ -27,7 +27,7 @@ machine: |
 
   state alive:
     enter:
-      observe foxes
+      gauge foxes  # the population over time (avg, peak)
       catching, dying = hunt * prey * foxes, death * foxes
       if foxes <= 0:
         goto extinct

@@ -193,7 +193,7 @@ function changedModel(opts) {
 function changed({ structural = true } = {}) {
   if (state.runLoaded) {
     state.runStale = true;
-    setStatus("model changed · reset to apply", "warn");
+    setStatus("model changed · stop to apply", "warn");
   }
   if (structural) renderInspector();
   clearTimeout(validateTimer);
@@ -741,6 +741,10 @@ function inspectEntity(root, e) {
   });
   root.append(idField);
   root.append(textField("label", e.name || "", (v) => { if (v) e.name = v; else delete e.name; }));
+  // layout only: the canvas redraws every frame, and the run doesn't need a reload
+  root.append(paramField(e, "dynamic_ports", {
+    type: "bool", default: false, help: "ports move to face what they link to",
+  }, { silent: true }));
 
   if (type && Object.keys(type.params).length) root.append(el("h2", {}, "Parameters"));
   for (const [name, meta] of Object.entries(type?.params || {})) root.append(paramField(e.params, name, meta));
@@ -829,20 +833,36 @@ function renderMetrics() {
     root.append(el("p", { class: "empty" }, "Not in the running model. Press stop to include it."));
     return;
   }
-  if (data.states) root.append(stateChips(data.states, data.state));
+  if (data.states) root.append(stateChips(data));
   const table = el("table", { class: "metrics" });
   for (const [name, m] of Object.entries(data)) {
-    if (name === "type" || name === "states") continue;
-    table.append(row(name, describe(m)));
+    if (tableRow(name, data)) table.append(row(name, describe(m)));
   }
   root.append(table);
 }
 
-// A machine's states, with the current one lit.
-function stateChips(states, current) {
+// Rows the table skips: the type, and a machine's states (shown on the state chips).
+function tableRow(name, data) {
+  if (name === "type" || name === "states") return false;
+  return !(data.states && name.startsWith("in_"));
+}
+
+// A machine's states, with the current one lit and the share of time spent in each.
+function stateChips({ states, state: current, ...metrics }) {
   const wrap = el("div", { class: "chips" });
-  for (const s of states) wrap.append(el("span", { class: s === current ? "chip on" : "chip" }, s));
+  for (const s of states) {
+    const share = metrics[`in_${s}`]?.avg;
+    const chip = el("span", { class: s === current ? "chip on" : "chip", title: "share of time in this state" }, s);
+    if (share !== undefined) chip.append(el("span", { class: "share" }, ` ${percent(share)}`));
+    wrap.append(chip);
+  }
   return wrap;
+}
+
+// 0.996 -> "99.6%", 0.0004 -> "<0.1%", exact 0 and 1 stay round.
+function percent(x) {
+  if (x > 0 && x < 0.001) return "<0.1%";
+  return `${Number((x * 100).toFixed(x === 0 || x === 1 ? 0 : 1))}%`;
 }
 
 function describe(m) {

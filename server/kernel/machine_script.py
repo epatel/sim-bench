@@ -40,6 +40,7 @@ Statements (one per line; a block is indented under a line ending in ``:``):
     if expr: / elif expr: / else:
     count name                     add 1 to a counter metric
     observe name [= expr]          add a sample to a metric (default: the variable)
+    gauge name [= expr]            set a level metric: its avg and peak are over time
     push var    pop var            queue the current message / take the oldest back
     release var -> port            send every queued message, oldest first
     pass                           do nothing
@@ -247,10 +248,15 @@ def _release(line: Line, rest: str) -> dict[str, Any]:
     return {"release": {"from": _name(line, m.group(1), "variable"), "to": m.group(2)}}
 
 
-def _observe(line: Line, rest: str) -> dict[str, Any]:
-    name, eq, value = rest.partition("=")
-    name = _name(line, name.strip(), "metric")
-    return {"observe": {name: check_expr(line, value) if eq else name}}
+def _metric(verb: str):
+    """'observe x' / 'gauge x = expr' -> {verb: {name: expr}} (the expr defaults to the name)."""
+
+    def read(line: Line, rest: str) -> dict[str, Any]:
+        name, eq, value = rest.partition("=")
+        name = _name(line, name.strip(), "metric")
+        return {verb: {name: check_expr(line, value) if eq else name}}
+
+    return read
 
 
 def _drop(line: Line, rest: str) -> dict[str, Any]:
@@ -273,7 +279,8 @@ _SIMPLE = {
     "emit": _emit,
     "after": _after,
     "release": _release,
-    "observe": _observe,
+    "observe": _metric("observe"),
+    "gauge": _metric("gauge"),
     "drop": _drop,
 }
 
@@ -510,17 +517,19 @@ def _after_line(a: dict[str, Any]) -> list[str]:
     return [f"after {a['after']} -> {a['event']}" + (" keep" if a.get("keep") else "")]
 
 
-def _observe_lines(a: dict[str, Any]) -> list[str]:
-    return [
-        f"observe {k}" if str(v) == k else f"observe {k} = {v}" for k, v in a["observe"].items()
-    ]
+def _metric_lines(verb: str):
+    def lines(a: dict[str, Any]) -> list[str]:
+        return [f"{verb} {k}" if str(v) == k else f"{verb} {k} = {v}" for k, v in a[verb].items()]
+
+    return lines
 
 
 _FORMATTERS = {
     "set": _set_lines,
     "emit": _emit_line,
     "after": _after_line,
-    "observe": _observe_lines,
+    "observe": _metric_lines("observe"),
+    "gauge": _metric_lines("gauge"),
     "goto": lambda a: [f"goto {a['goto']}"],
     "send": lambda a: [f"send {a['send']}"],
     "drop": lambda a: [f"drop {a['drop']}"],

@@ -1,5 +1,6 @@
 // Canvas editor and live view: entities, ports, links, messages in flight.
 import { glyph, ICON_FONT } from "./icons.js";
+import { borderPoint, layoutPorts, portKey, settle } from "./ports.js";
 
 export const NODE_W = 136;
 export const NODE_H = 60;
@@ -11,6 +12,8 @@ const MIN_FLIGHT_MS = 350; // zero-latency hops stay visible this long
 const STEP_HOP_MS = 450; // a stepped delivery travels its link this long, then pulses
 const FLASH_MS = 450;
 const DOT_R = 4;
+const BOX = { w: NODE_W, h: NODE_H }; // for port placement
+const PERIMETER = 2 * (BOX.w + BOX.h);
 
 const C = {
   grid: "#1a2029", node: "#18202a", nodeLine: "#2c3644", text: "#d7dde6", muted: "#8591a3",
@@ -35,6 +38,8 @@ export class Editor extends EventTarget {
     this.flights = [];
     this.flashes = [];
     this.clock = { now: 0, wall: performance.now(), playing: false, speed: 1 };
+    this.portAt = new Map(); // portKey -> current position along the node border
+    this.lastFrame = performance.now();
     this.bindEvents();
     new ResizeObserver(() => this.resize()).observe(canvas);
     this.resize();
@@ -76,14 +81,23 @@ export class Editor extends EventTarget {
 
   // --- geometry ---------------------------------------------------------
 
+  // A port's point on its node's border, with the outward normal (nx, ny).
   portPos(entity, port, isOut) {
-    const ports = this.app.portsOf(entity.id);
-    const list = isOut ? ports.outputs : ports.inputs;
-    const i = Math.max(0, list.indexOf(port));
-    return {
-      x: entity.pos[0] + (isOut ? NODE_W : 0),
-      y: entity.pos[1] + (NODE_H * (i + 1)) / (list.length + 1),
-    };
+    // until the next frame places a new port: the middle of its classic side
+    const s = this.portAt.get(portKey(entity.id, port, isOut)) ?? (isOut ? BOX.w + BOX.h / 2 : -BOX.h / 2);
+    const b = borderPoint(s, BOX.w, BOX.h);
+    return { x: entity.pos[0] + b.x, y: entity.pos[1] + b.y, nx: b.nx, ny: b.ny };
+  }
+
+  // Move every port towards the spot facing what it links to (see ports.js).
+  placePorts(dt) {
+    const links = [];
+    for (const c of this.app.model.connections) {
+      const from = this.endpoint(c.from, true), to = this.endpoint(c.to, false);
+      if (from && to) links.push({ from, to });
+    }
+    const targets = layoutPorts({ nodes: this.nodes(), links, portsOf: (id) => this.app.portsOf(id), box: BOX });
+    settle(this.portAt, targets, dt, PERIMETER);
   }
 
   // --- view layer: abstract groups are drawn as one collapsed node -------
@@ -196,7 +210,7 @@ export class Editor extends EventTarget {
       for (const [list, isOut] of [[ports.outputs, true], [ports.inputs, false]]) {
         for (const port of list) {
           const q = this.portPos(e, port, isOut);
-          if (Math.hypot(q.x - p.x, q.y - p.y) <= r) return { entity: e.id, port, isOut, x: q.x, y: q.y };
+          if (Math.hypot(q.x - p.x, q.y - p.y) <= r) return { entity: e.id, port, isOut, ...q };
         }
       }
     }
@@ -362,7 +376,9 @@ export class Editor extends EventTarget {
 
   // --- drawing ----------------------------------------------------------
 
-  frame() {
+  frame(t = performance.now()) {
+    this.placePorts(Math.min(100, t - this.lastFrame));
+    this.lastFrame = t;
     this.draw();
     requestAnimationFrame((t) => this.frame(t));
   }
@@ -425,10 +441,10 @@ export class Editor extends EventTarget {
 
   strokeBezier(a, b) {
     const ctx = this.ctx;
-    const dx = Math.max(40, Math.abs(b.x - a.x) * 0.5);
+    const [p1, p2] = controls(a, b);
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
-    ctx.bezierCurveTo(a.x + dx, a.y, b.x - dx, b.y, b.x, b.y);
+    ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, b.x, b.y);
     ctx.stroke();
   }
 
@@ -639,41 +655,57 @@ export class Editor extends EventTarget {
   }
 
   drawPorts(e) {
-    const { ctx } = this;
     const ports = this.app.portsOf(e.id);
     for (const [list, isOut] of [[ports.inputs, false], [ports.outputs, true]]) {
-      for (const port of list) {
-        const q = this.portPos(e, port, isOut);
-        const hot = this.hoverPort && this.hoverPort.entity === e.id && this.hoverPort.port === port && this.hoverPort.isOut === isOut;
-        ctx.fillStyle = hot ? C.portHot : C.node;
-        ctx.strokeStyle = hot ? C.portHot : C.port;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(q.x, q.y, PORT_R, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-        if (list.length > 1 || (port !== "in" && port !== "out")) {
-          ctx.fillStyle = C.muted;
-          ctx.font = "9.5px ui-monospace, Menlo, monospace";
-          ctx.textAlign = isOut ? "left" : "right";
-          ctx.textBaseline = "middle";
-          ctx.fillText(port, q.x + (isOut ? 8 : -8), q.y);
-        }
-      }
+      // a lone in/out needs no label
+      const labelled = list.length > 1 || list.some((p) => p !== "in" && p !== "out");
+      for (const port of list) this.drawPort(e, port, isOut, labelled);
     }
+  }
+
+  drawPort(e, port, isOut, labelled) {
+    const { ctx } = this;
+    const q = this.portPos(e, port, isOut);
+    const h = this.hoverPort;
+    const hot = h && h.entity === e.id && h.port === port && h.isOut === isOut;
+    // outputs are filled, inputs hollow: with dynamic ports the side doesn't tell them apart
+    ctx.fillStyle = hot ? C.portHot : isOut ? C.port : C.node;
+    ctx.strokeStyle = hot ? C.portHot : C.port;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(q.x, q.y, PORT_R, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    if (!labelled) return;
+    ctx.fillStyle = C.muted;
+    ctx.font = "9.5px ui-monospace, Menlo, monospace";
+    ctx.textAlign = ALIGN[Math.sign(q.nx) + 1];
+    ctx.textBaseline = BASELINE[Math.sign(q.ny) + 1];
+    ctx.fillText(port, q.x + q.nx * 8, q.y + q.ny * 8);
   }
 }
 
 // --- helpers --------------------------------------------------------------
+
+// A port label's anchor, by the sign of the port's outward normal (-1, 0, 1).
+const ALIGN = ["right", "center", "left"];
+const BASELINE = ["bottom", "middle", "top"];
 
 export function splitRef(ref) {
   const i = ref.lastIndexOf(".");
   return [ref.slice(0, i), ref.slice(i + 1)];
 }
 
+// A link leaves and enters along its ports' outward normals. An end without one (the
+// pointer, while dragging a new link) gets no handle.
+function controls(a, b) {
+  const d = Math.max(36, Math.hypot(b.x - a.x, b.y - a.y) * 0.4);
+  const handle = (p) => (p.nx === undefined ? { x: p.x, y: p.y } : { x: p.x + p.nx * d, y: p.y + p.ny * d });
+  return [handle(a), handle(b)];
+}
+
 function bezier(a, b, t) {
-  const dx = Math.max(40, Math.abs(b.x - a.x) * 0.5);
-  const p1 = { x: a.x + dx, y: a.y }, p2 = { x: b.x - dx, y: b.y };
+  const [p1, p2] = controls(a, b);
   const u = 1 - t;
   return {
     x: u * u * u * a.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * b.x,

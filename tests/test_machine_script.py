@@ -73,6 +73,8 @@ state open
         ("count hits", {"count": "hits"}),
         ("observe size", {"observe": {"size": "size"}}),
         ("observe wait = now - msg.t", {"observe": {"wait": "now - msg.t"}}),
+        ("gauge level", {"gauge": {"level": "level"}}),
+        ("gauge depth = len(q)", {"gauge": {"depth": "len(q)"}}),
         ("push q", {"push": "q"}),
         ("pop q", {"pop": "q"}),
         ("release q -> out", {"release": {"from": "q", "to": "out"}}),
@@ -163,3 +165,24 @@ def test_a_formatted_mapping_runs_exactly_like_the_mapping():
         },
     }  # fmt: skip
     assert run(format_script(mapping)) == run(mapping)
+
+
+def test_a_gauge_averages_over_time_not_over_events():
+    machine = """
+var level = 1
+state s:
+  enter:
+    gauge level
+    after 1 -> up
+  on up:
+    level = 3
+    gauge level
+"""
+    model = ModelSpec.model_validate(
+        {"entities": [{"id": "m", "type": "machine", "params": {"machine": machine}}]}
+    )
+    sim = Simulation(model, library=LIB)
+    sim.run(until=4)
+    g = sim.summary()["entities"]["m"]["level"]
+    assert g["value"] == 3 and g["peak"] == 3
+    assert g["avg"] == pytest.approx((1 * 1 + 3 * 3) / 4)  # 1 for a time unit, then 3 for 3
