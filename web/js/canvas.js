@@ -734,8 +734,14 @@ const BADGES = {
   server: (s) => `q ${fmt(s.queue?.value)} · ${Math.round((s.utilization || 0) * 100)}% busy`,
   sink: (s) => `${fmt(s.received?.value)} · ${fmt(s.latency?.mean)} lat`,
   delay: (s, e) => (e.collapsed ? `${fmt(s.passed?.value)} passed` : ""),
-  machine: (s) => `● ${s.state}${s.last_error ? "  ⚠ error" : ""}`,
+  machine: (s) => `● ${s.state}${firstVar(s.vars)}${s.last_error ? "  ⚠ error" : ""}`,
 };
+
+// A machine's first variable (its main quantity, by convention), e.g. " · foxes 42".
+function firstVar(vars) {
+  const [name, value] = Object.entries(vars || {})[0] || [];
+  return typeof value === "number" ? ` · ${name} ${fmt(value)}` : "";
+}
 
 function badgeText(e, s) {
   let text = BADGES[s.type]?.(s, e) || "";

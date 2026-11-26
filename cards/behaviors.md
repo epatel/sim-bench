@@ -36,7 +36,9 @@ machine:
 - A runtime error drops the message, increments `errors` and sets `last_error`. The run continues.
 - Metrics: `in_<state>` is a time-weighted gauge (its `avg` is the fraction of time spent in that state). There are also `transitions`, `absorbed`, `unhandled` and `errors`. `summary_extra` adds `state`, `states` and `vars`.
 - The type's own params (`threshold`...) are expression names. `/api/types` exposes them as editable fields.
-- Shipped examples: `web/circuit-breaker` and `queueing/batcher`. `projects/examples/resilience.yaml` shows them working together.
+- Shipped examples: `web/circuit-breaker` and `queueing/batcher`. `projects/examples/resilience.yaml` shows them working together. `ecology/rabbits` and `ecology/foxes` are population machines.
+- **Gillespie pattern** (the ecology types): in the state's `enter`, draw the time to the next event as `sample({'dist': 'exp', 'mean': 1 / total_rate})`; when it fires, pick which event happened with `random()`, update the counts, and `goto` the same state. The self-`goto` cancels the old timer (timers belong to a state *generation*), so any message that changes a rate can also just `goto` the state to redraw. Use `keep: true` for timers that must survive this, such as a periodic report.
+- The canvas badge of a machine shows its state and its **first** variable, so put the main quantity first in `vars`.
 
 ## Expression language (`expr.py`)
 

@@ -1,0 +1,15 @@
+name: rabbits-and-foxes
+description: >
+  Predator and prey (Lotka-Volterra, 1925-26), one animal at a time. Rabbits breed,
+  foxes eat rabbits and breed from what they catch, foxes starve. The populations chase
+  each other in cycles: rabbits boom, foxes follow, rabbits crash, foxes starve, repeat.
+  It starts at 100 rabbits and 20 foxes, away from the balance point of 200 and 50, so
+  the cycles start large; chance keeps them going, and can end them. Run a batch and
+  plot entities.rabbits.vars.rabbits and entities.foxes.vars.foxes over time. Live, the
+  auto speed shows single catches; drag the speed to 1-3x to watch whole cycles.
+entities:
+  - {id: rabbits, type: ecology/rabbits, pos: [120, 200]}
+  - {id: foxes, type: ecology/foxes, pos: [420, 200]}
+connections:
+  - {from: rabbits.census, to: foxes.census, latency: 0.01}
+  - {from: foxes.kill, to: rabbits.eaten, latency: 0.01}

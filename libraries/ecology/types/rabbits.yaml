@@ -1,0 +1,38 @@
+name: rabbits
+extends: machine
+description: >
+  A prey population. Each rabbit breeds at `birth` per time unit, slowed as the
+  population nears `capacity` (the meadow's grass). Each message on `eaten` removes one
+  rabbit. Every `report` time units it tells the predators its size on `census`.
+  Events are drawn one at a time (Gillespie), so small populations can die out.
+icon: fa-carrot
+params:
+  start: 100       # rabbits at t=0
+  birth: 1.0       # births per rabbit per time unit (on an empty meadow)
+  capacity: 2000   # the meadow holds at most this many
+  report: 0.1      # census interval
+machine:
+  inputs: [eaten]
+  outputs: [census]
+  vars: {rabbits: -1}
+  initial: born
+  on:
+    report:
+      - {emit: {port: census, payload: {rabbits: rabbits}}}
+      - {after: report, event: report, keep: true}
+  states:
+    born:  # first event only: take the starting size from the params
+      enter: [{set: {rabbits: start}}, {after: 0, event: report, keep: true}, {goto: alive}]
+    alive:
+      enter:
+        - {observe: {rabbits: rabbits}}
+        - if: "rabbits <= 0"
+          then: [{goto: extinct}]
+          else: [{after: "sample({'dist': 'exp', 'mean': 1 / (birth * rabbits)})", event: breed}]
+      on:
+        breed:
+          - {if: "random() < 1 - rabbits / capacity", then: [{set: {rabbits: "rabbits + 1"}}, {count: births}]}
+          - {goto: alive}  # leaving the state cancels the old timer; enter draws the next
+        eaten: [{set: {rabbits: "max(rabbits - 1, 0)"}}, {count: eaten}, {goto: alive}]
+    extinct:
+      on: {eaten: [{count: eaten}]}

@@ -35,7 +35,7 @@ A Claude agent can edit and run the model, and can build models by reading other
 - **Behaviors in three tiers**: stochastic built-ins (source, server, delay, router,
   sink), declarative state machines (YAML), and Python behaviors for the rest.
 - **Libraries and templates**: item types with inheritance and parameterized
-  sub-models (`libraries/web`, `libraries/queueing`).
+  sub-models (`libraries/web`, `libraries/queueing`, `libraries/ecology`).
 - **What-if scenarios**: patches on parameters, links or group modes, optionally at a time
   (fault injection). Batch runs over seeds report a mean and 95% CI. "What if, from here"
   forks a paused run with common random numbers.

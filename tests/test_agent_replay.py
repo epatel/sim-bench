@@ -30,7 +30,7 @@ def restore_app_globals(monkeypatch):
 def replay(path, tmp_path):
     """Replay one cassette; return (transport, outcome, meta, paths)."""
     meta, entries = load_cassette(path)
-    script = Script(meta["prompts"], meta["model_file"], meta["sources"])
+    script = Script(meta["prompts"], meta["model_file"], meta["sources"], meta["libraries"])
     paths = paths_for(tmp_path, script)
     transports: list[ReplayTransport] = []
 

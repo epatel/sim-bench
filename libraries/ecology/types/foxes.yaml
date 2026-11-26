@@ -1,0 +1,43 @@
+name: foxes
+extends: machine
+description: >
+  A predator population. Each fox catches a rabbit at `hunt` x rabbits per time unit
+  (using the last `census` it heard) and sends a message on `kill` for each catch. A
+  catch feeds a new fox with probability `efficiency`. Each fox dies at `death` per
+  time unit. Events are drawn one at a time (Gillespie), so foxes can die out.
+icon: fa-paw
+params:
+  start: 20          # foxes at t=0
+  hunt: 0.02         # catches per fox per rabbit per time unit
+  efficiency: 0.1    # chance that a catch raises a new fox
+  death: 0.4         # deaths per fox per time unit
+machine:
+  inputs: [census]
+  outputs: [kill]
+  vars: {foxes: -1, prey: 0, catching: 0, dying: 0}
+  initial: born
+  states:
+    born:
+      enter: [{set: {foxes: start}}, {goto: alive}]
+      on: {census: [{set: {prey: msg.rabbits}}]}
+    alive:
+      enter:
+        - {observe: {foxes: foxes}}
+        - {set: {catching: "hunt * prey * foxes", dying: "death * foxes"}}
+        - if: "foxes <= 0"
+          then: [{goto: extinct}]
+          else:
+            - if: "catching + dying > 0"
+              then: [{after: "sample({'dist': 'exp', 'mean': 1 / (catching + dying)})", event: act}]
+      on:
+        census: [{set: {prey: msg.rabbits}}, {goto: alive}]
+        act:
+          - if: "random() * (catching + dying) < catching"
+            then:
+              - {emit: {port: kill, payload: {}}}
+              - {count: catches}
+              - {if: "random() < efficiency", then: [{set: {foxes: "foxes + 1"}}, {count: births}]}
+            else: [{set: {foxes: "foxes - 1"}}, {count: deaths}]
+          - {goto: alive}
+    extinct:
+      on: {census: [{set: {prey: msg.rabbits}}]}

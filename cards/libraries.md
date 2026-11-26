@@ -14,6 +14,7 @@ libraries/<lib>/behaviors/*.py     Python behaviors -> "<lib>/<kind>" (trusted c
 Shipped libraries:
 - `web`: client, network, load-balancer, app-server, cache, database, response, circuit-breaker (a machine), and token-bucket (Python). Templates: `lb-pool`, `cached-db`.
 - `queueing`: poisson-source, mm-server, batcher (a machine). Template: `tandem`.
+- `ecology`: rabbits and foxes (machines), a stochastic Lotka-Volterra pair. Example: `projects/examples/rabbits-and-foxes.yaml`.
 
 ## Item types
 

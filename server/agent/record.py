@@ -37,6 +37,9 @@ class Script:
     prompts: list[str]
     model_file: str | None = None  # repo-relative; None = an empty model
     sources: dict[str, str] = field(default_factory=dict)  # name -> repo-relative dir
+    # the libraries the agent sees; None = all of them. A cassette keeps the list it was
+    # recorded with, so adding a library doesn't change its recorded list_types answers.
+    libraries: list[str] | None = None
 
     def start_model(self) -> dict[str, Any]:
         return load_yaml((ROOT / self.model_file).read_text()) if self.model_file else {}
@@ -48,9 +51,15 @@ class Outcome:
     model: dict[str, Any]
 
 
-def sandbox(tmp: Path) -> None:
+def library_names() -> list[str]:
+    return sorted(p.parent.name for p in (ROOT / "libraries").glob("*/library.yaml"))
+
+
+def sandbox(tmp: Path, libraries: list[str] | None = None) -> None:
     """Point the app at throwaway libraries, run store and local state under ``tmp``."""
-    shutil.copytree(ROOT / "libraries", tmp / "libraries")
+    (tmp / "libraries").mkdir(parents=True)
+    for name in library_names() if libraries is None else libraries:
+        shutil.copytree(ROOT / "libraries" / name, tmp / "libraries" / name)
     app.LIBRARIES = tmp / "libraries"
     app.RUNS_DB = tmp / "runs.sqlite3"
     app.LOCAL = tmp / "local"
@@ -74,7 +83,7 @@ def workdir(tmp: Path) -> Path:
 
 async def converse(script: Script, tmp: Path, make_transport: MakeTransport) -> Outcome:
     """Run ``script`` against a sandboxed app, the way the chat panel would."""
-    sandbox(tmp)
+    sandbox(tmp, script.libraries)
     events: list[dict[str, Any]] = []
 
     async def send(event: dict[str, Any]) -> None:
@@ -114,6 +123,7 @@ async def record(script: Script, out: Path) -> Outcome:
         "prompts": script.prompts,
         "model_file": script.model_file,
         "sources": script.sources,
+        "libraries": script.libraries or library_names(),
         "recorded": date.today().isoformat(),
         "sdk": claude_agent_sdk.__version__,
         "events": paths.scrub_value(outcome.events),

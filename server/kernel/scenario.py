@@ -81,7 +81,7 @@ def flat_metrics(summary: dict[str, Any]) -> dict[str, float]:
     """Every number in a run summary, keyed by a dotted path.
 
     e.g. ``entities.done.latency.mean``, ``links.a.out->b.in.lost.value``,
-    ``groups.pool.residence.p95``.
+    ``groups.pool.residence.p95``, ``entities.foxes.vars.foxes`` (a machine variable).
     """
     out: dict[str, float] = {}
     for section in ("entities", "links", "groups"):
@@ -99,7 +99,9 @@ def _flatten_one(out: dict[str, float], path: str, m: Any) -> None:
     if _number(m):
         out[path] = float(m)
     elif isinstance(m, dict):
-        out.update({f"{path}.{k}": float(m[k]) for k in _FIELDS if _number(m.get(k))})
+        # a machine's variables are all values; a metric keeps its summary fields
+        keys = m if path.endswith(".vars") else _FIELDS
+        out.update({f"{path}.{k}": float(m[k]) for k in keys if _number(m.get(k))})
         if "residence" in m:  # a group probe nests a samples metric
             _flatten_one(out, f"{path}.residence", m["residence"])
 

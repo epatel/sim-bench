@@ -31,7 +31,7 @@ flowchart LR
   API -- "aggregate + mean_series" --> UI
 ```
 
-- `run_one` samples every metric `samples` times. `flat_metrics` turns a summary into `{dotted.path: number}`, for example `entities.done.latency.mean` or `links.<key>.lost.value`.
+- `run_one` samples every metric `samples` times. `flat_metrics` turns a summary into `{dotted.path: number}`, for example `entities.done.latency.mean` or `links.<key>.lost.value`. A machine's numeric variables are included as `entities.<id>.vars.<name>`, so batches can chart populations or counters.
 - `aggregate` gives the mean, std and a **95% CI for the mean**, using Student's t up to 30 degrees of freedom. Seeds are 1..n, so a scenario and the baseline use the same seeds. That pairing reduces noise in the comparison.
 - Limits: 200 runs per batch and 2M events per run. A capped run sets `truncated`, and the drawer shows a warning.
 - `GET /api/batches/{id}` returns `aggregate` (per scenario and metric), `metrics`, and with `?metric=` the mean time series per scenario.
