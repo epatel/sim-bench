@@ -65,4 +65,5 @@ export class RunClient extends EventTarget {
   reset() { this.send({ cmd: "reset" }); }
   speed(value) { this.send({ cmd: "speed", value }); }
   whatif(scenario, horizon) { this.send({ cmd: "whatif", scenario, horizon }); }
+  visuals(visuals) { this.send({ cmd: "visuals", visuals }); }
 }

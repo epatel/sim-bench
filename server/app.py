@@ -42,6 +42,8 @@ from .kernel import (
 )
 from .kernel import scenario as scen
 from .kernel.calibrate import Request as CalibrationRequest
+from .kernel.sim import check_visuals
+from .kernel.visuals import run_visuals
 from .kernel.yamlio import load_yaml
 from .sources import SourceError, SourceRegistry
 from .storage import RunStore
@@ -402,11 +404,13 @@ class RunSession:
     """One simulation driven by one browser over a WebSocket.
 
     Client -> server: {"cmd": "load", "model": {...}, "seed": int}
+                      {"cmd": "visuals", "visuals": [...]}  (live: the run goes on)
                       {"cmd": "play"} | {"cmd": "pause"} | {"cmd": "step"}
                       {"cmd": "reset"} | {"cmd": "speed", "value": float}
     Server -> client: {"type": "loaded", "ports": {...}, "suggested_speed": float | None}
                       {"type": "frame", "now", "playing", "events", "lagging", "step",
-                       "records": [...], "dropped_records": int, "summary"?: {...}}
+                       "records": [...], "dropped_records": int, "summary"?: {...},
+                       "visuals"?: {id: {output, title?, unit?, min?, max?} | {error}}}
                       {"type": "error", "message": str}
     ``speed`` is simulated time units per real second. ``step`` runs until the next
     message is delivered (internal events such as timers run on the way).
@@ -454,6 +458,7 @@ class RunSession:
             "step": self.step,
             "reset": self.reset,
             "whatif": self.whatif,
+            "visuals": self.set_visuals,
         }.get(cmd)
         if handler is None:
             return await self.error(f"unknown cmd {cmd!r}")
@@ -496,6 +501,18 @@ class RunSession:
         self._build()
         await self.send_frame(summary=True)
 
+    async def set_visuals(self, msg: dict[str, Any]) -> None:
+        """Swap the visuals of the running model (they only read the run, so it goes on)."""
+        try:
+            model = ModelSpec.model_validate(
+                {**self.model.model_dump(), "visuals": msg.get("visuals") or []}
+            )
+            check_visuals(model)
+        except (ValidationError, ModelError) as e:
+            return await self.error(f"visuals: {e}")
+        self.model = model
+        await self.send_frame(summary=True)
+
     async def whatif(self, msg: dict[str, Any]) -> None:
         """Fork the paused run: continue it as is and with a scenario, side by side."""
         self.playing = False
@@ -534,6 +551,7 @@ class RunSession:
         }
         if summary:
             frame["summary"] = sim.summary()
+            frame["visuals"] = run_visuals(self.model.visuals, frame["summary"], sim.globals)
         await self.ws.send_json(frame)
         self.records = []
         self.dropped_records = 0

@@ -168,6 +168,25 @@ class ScenarioSpec(BaseModel):
     patches: list[PatchSpec] = Field(default_factory=list)
 
 
+class VisualSpec(BaseModel):
+    """Something shown on the Visual canvas, computed from the run (see ``visuals.py``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    widget: Literal["label", "bar", "sparkline"] = "label"
+    entity: str | None = None  # the entity whose metrics the script sees by name
+    code: str = "output = now"
+    pos: list[float] | None = None  # on the Visual canvas
+
+    @field_validator("id")
+    @classmethod
+    def _plain_id(cls, v: str) -> str:
+        if not v or "." in v:
+            raise ValueError("a visual id is non-empty and has no '.'")
+        return v
+
+
 class ModelSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -179,6 +198,8 @@ class ModelSpec(BaseModel):
     scenarios: list[ScenarioSpec] = Field(default_factory=list)
     # constants and functions for every machine's expressions (model_globals.py)
     globals: str | None = None
+    # left out of dumps when empty, so models without visuals serialize as before
+    visuals: list[VisualSpec] = Field(default_factory=list, exclude_if=lambda v: not v)
 
     def entity(self, entity_id: str) -> EntitySpec:
         for e in self.entities:

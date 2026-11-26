@@ -3,6 +3,7 @@ import { api, RunClient } from "./api.js";
 import { Editor, NODE_H, NODE_W, fmt, linkKey, splitRef } from "./canvas.js";
 import { layout, layoutFragment } from "./layout.js";
 import { inspectMulti } from "./multi.js";
+import { wireVisuals } from "./visual-view.js";
 import { groupSpec, inlineBoundaryRefs, removeGroupSpec, setEntityGroup } from "./groups.js";
 import { loadIconFont } from "./icons.js";
 import { AgentChat } from "./agent.js";
@@ -116,6 +117,7 @@ const REMOVERS = {
     state.model.connections = state.model.connections.filter((c) => linkKey(c) !== id);
   },
   multi: (ids) => removeEntities(new Set(ids)),
+  visual: (id) => visual.remove(id),
 };
 
 function removeEntities(gone) {
@@ -171,6 +173,7 @@ function selectionExists(sel) {
   if (sel.kind === "entity") return state.model.entities.some((e) => e.id === sel.id);
   if (sel.kind === "link") return state.model.connections.some((c) => linkKey(c) === sel.id);
   if (sel.kind === "group") return state.model.groups.some((g) => g.id === sel.id);
+  if (sel.kind === "visual") return visual.exists(sel.id);
   if (sel.kind === "multi") return sel.id.every((id) => state.model.entities.some((e) => e.id === id));
   return true;
 }
@@ -183,6 +186,7 @@ for (const tab of document.querySelectorAll(".tabs button")) {
   };
 }
 const run = new RunClient();
+const visual = wireVisuals({ state, editor, run, validate: () => validateNow() });
 
 // --- model edits and validation --------------------------------------------------
 
@@ -265,6 +269,7 @@ function setModel(model, path) {
   $("model-path").value = path;
   editor.clearLive();
   editor.select(null);
+  visual.reset();
   requestAnimationFrame(() => editor.fit()); // after layout has settled
   setStatus("");
   validateNow();
@@ -376,6 +381,7 @@ async function insertTemplate(id, args = {}, prefix = null, origin = viewCenter(
 
 // One inspector per selection kind; each returns false when its target is gone.
 const INSPECTORS = {
+  visual: (root, id) => visual.inspect(root, id),
   multi: (root, ids) => inspectMulti(root, ids, {
     model: state.model, changed, showBanner, remove: () => app.deleteSelection(),
   }),
@@ -721,7 +727,7 @@ function inspectEntity(root, e) {
   del.append(el("i", { class: "fa-solid fa-trash" }), " Delete");
   del.onclick = () => app.deleteSelection();
   actions.append(del);
-  root.append(actions);
+  root.append(actions, visual.section(e));
 
   root.append(el("h2", {}, "Metrics"));
   root.append(el("div", { id: "metrics" }));

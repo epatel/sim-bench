@@ -31,6 +31,7 @@ Domains
 - [behaviors](cards/behaviors.md) — when writing an entity with custom logic (state machine or Python behavior), or changing the expression language
 - [scenarios](cards/scenarios.md) — when changing scenario patches, batch runs and statistics, the what-if fork, the results store or the results drawer
 - [agent](cards/agent.md) — when changing the in-app agent: its tools, prompt, isolation, authentication or the chat panel
+- [visuals](cards/visuals.md) — when changing the Visual canvas, model `visuals`, or how their scripts are evaluated
 - [deployment](cards/deployment.md) — when changing the access token, frontend URLs (keep them relative) or `deploy/`
 - [sources](cards/sources.md) — when changing what the agent may read, the read guard, proposals (accept/reject, diff preview) or provenance
 

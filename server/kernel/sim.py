@@ -23,6 +23,7 @@ from .metrics import Counter, Gauge, Samples
 from .model import ConnectionSpec, EntitySpec, ModelSpec, PatchSpec
 from .model_globals import EMPTY, Globals, parse_globals
 from .rng import RngPool, sample
+from .visuals import parse_visual
 
 Listener = Callable[[dict[str, Any]], None]
 
@@ -162,6 +163,22 @@ class Link:
         sim.emit({"type": "send", "link": self.key, "msg": msg.id, "t": now, "arrive": arrive})
 
 
+def check_visuals(model: ModelSpec) -> None:
+    """Visual ids are unique, entities exist, and scripts parse (``ModelError`` otherwise)."""
+    ids = {e.id for e in model.entities}
+    seen: set[str] = set()
+    for v in model.visuals:
+        if v.id in seen:
+            raise ModelError(f"visuals: id {v.id!r} is used twice")
+        seen.add(v.id)
+        if v.entity is not None and v.entity not in ids:
+            raise ModelError(f"visuals.{v.id}: no entity {v.entity!r}")
+        try:
+            parse_visual(v.code)
+        except ScriptError as e:
+            raise ModelError(f"visuals.{v.id}: {e}") from None
+
+
 class Simulation:
     def __init__(
         self,
@@ -189,6 +206,7 @@ class Simulation:
             self.globals = parse_globals(model.globals) if model.globals else EMPTY
         except ScriptError as e:
             raise ModelError(f"globals: {e}") from e
+        check_visuals(model)
 
         self.entities: dict[str, Behavior] = {}
         self.ports: dict[str, tuple[list[str], list[str]]] = {}

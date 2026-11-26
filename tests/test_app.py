@@ -272,3 +272,23 @@ def test_speed_can_be_set_before_loading(client):
         ws.send_json({"cmd": "speed", "value": 5})
         ws.send_json({"cmd": "load", "model": MODEL, "seed": 1})
         assert ws.receive_json()["type"] == "loaded"  # no error came first
+
+
+def test_frames_carry_the_visuals(client):
+    model = {**MODEL, "visuals": [{"id": "got", "entity": "done", "code": "output = received"}]}
+    with client.websocket_connect("/ws/run") as ws:
+        ws.send_json({"cmd": "load", "model": model, "seed": 1})
+        ws.receive_json()  # loaded
+        assert ws.receive_json()["visuals"] == {"got": {"output": 0}}
+        ws.send_json({"cmd": "step"})
+        assert ws.receive_json()["visuals"] == {"got": {"output": 1}}
+
+
+def test_visuals_can_be_swapped_while_running(client):
+    with client.websocket_connect("/ws/run") as ws:
+        ws.send_json({"cmd": "load", "model": MODEL, "seed": 1})
+        ws.receive_json(), ws.receive_json()  # loaded, first frame
+        ws.send_json({"cmd": "visuals", "visuals": [{"id": "t", "code": "output = now + 1"}]})
+        assert ws.receive_json()["visuals"] == {"t": {"output": 1}}
+        ws.send_json({"cmd": "visuals", "visuals": [{"id": "t", "code": "nope"}]})
+        assert ws.receive_json()["message"].startswith("visuals: visuals.t: line 1")
