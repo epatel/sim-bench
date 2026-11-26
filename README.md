@@ -28,7 +28,7 @@ that exchange messages and react to events. You build, run and watch the model o
 A Claude agent can edit and run the model, and can build models by reading other projects' source code.
 
 - **Canvas editor**: place items (Font Awesome icons), connect ports, edit parameters,
-  run / pause / step with animated messages and metric badges.
+  run / pause / step / stop with animated messages and metric badges.
 - **Coarse to fine**: groups are composites with boundary ports. Keep a group *abstract* (one
   calibrated stand-in) or *expanded* (its members simulated), and focus on one path.
   Calibration fits a stand-in that matches the group's latency and saturates at its capacity.

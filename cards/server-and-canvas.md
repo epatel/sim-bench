@@ -46,7 +46,8 @@ sequenceDiagram
 - While playing, every delivery pulses its entity (at most one pulse per entity at a time), and zero-latency hops stay visible for `MIN_FLIGHT_MS`. Play on a finished run restarts it.
 - Static files and `/` are served with `Cache-Control: no-cache`. The browser revalidates with the ETag, so an updated JS module is never run from a stale cache. Without this header, browsers guess a cache lifetime.
 - `records` are the kernel listener records, capped at `MAX_RECORDS_PER_FRAME`. The overflow count goes in `dropped_records`. The canvas only needs a sample to animate.
-- The run uses the model as it was sent with `load`. The UI marks itself stale after any edit and sends a fresh `load` on the next play, step or reset.
+- The run uses the model as it was sent with `load`. The UI marks itself stale after any edit and sends a fresh `load` on the next play, step or stop. The stop button (fa-stop) pauses and rewinds to t=0 with a fresh `load`; the server `reset` command remains.
+- The play icon is swapped by class, never by replacing the `<i>`, and `button i` has `pointer-events: none`: frames arrive at 30 FPS, and replacing the element under the pointer between mousedown and mouseup loses the click.
 
 ## Frontend (`web/`, vanilla ES modules, no build)
 

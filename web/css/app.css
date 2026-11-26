@@ -22,6 +22,7 @@ button, select, input {
   border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px;
 }
 button { cursor: pointer; min-width: 30px; }
+button i { pointer-events: none; } /* clicks target the button, even if the icon changes */
 button:hover { border-color: #3a4454; background: #222a35; }
 button.primary { background: #2a2312; border-color: #5a4518; color: var(--accent); }
 input:focus, select:focus, button:focus-visible { outline: 1px solid var(--select); outline-offset: 0; }

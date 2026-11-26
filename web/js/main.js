@@ -931,7 +931,7 @@ function renderMetrics() {
   }
   const data = metricsFor(sel, s);
   if (!data) {
-    root.append(el("p", { class: "empty" }, "Not in the running model. Reset to include it."));
+    root.append(el("p", { class: "empty" }, "Not in the running model. Press stop to include it."));
     return;
   }
   if (data.states) root.append(stateChips(data.states, data.state));

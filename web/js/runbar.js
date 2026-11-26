@@ -1,4 +1,4 @@
-// Run controls: play / pause, step, reset, speed (auto or manual), and the run status.
+// Run controls: play / pause, step, stop (rewind to the start), speed (auto or manual), and the run status.
 import { fmt } from "./canvas.js";
 
 const $ = (id) => document.getElementById(id);
@@ -26,7 +26,14 @@ export function wireRunControls({ state, editor, run, results, renderMetrics, sh
     ensureLoaded();
     run.step();
   };
-  $("btn-reset").onclick = () => {
+  // Swap the icon's class, not the element: replacing the <i> under the pointer 30 times a
+  // second lands mousedown and mouseup on different elements, and the click is lost.
+  function setPlayIcon(playing) {
+    const icon = $("btn-play").querySelector("i");
+    icon.classList.toggle("fa-pause", playing);
+    icon.classList.toggle("fa-play", !playing);
+  }
+  $("btn-stop").onclick = () => {
     state.runStale = true;
     state.summary = null;
     ensureLoaded();
@@ -52,7 +59,7 @@ export function wireRunControls({ state, editor, run, results, renderMetrics, sh
     editor.addRecords(f.records, { stepping: f.step });
     $("sim-time").textContent = fmt(f.now);
     $("sim-events").textContent = fmt(f.events);
-    $("btn-play").innerHTML = `<i class="fa-solid ${f.playing ? "fa-pause" : "fa-play"}"></i>`;
+    setPlayIcon(f.playing);
     state.finished = !f.playing && f.pending === 0 && f.events > 0;
     if (!state.runStale) runStatus(f);
     if (f.summary) {
