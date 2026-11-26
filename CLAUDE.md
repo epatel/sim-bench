@@ -8,6 +8,8 @@ A local workbench that runs a discrete-event simulation of entities, messages an
 
 ## Commands
 
+`make` lists shortcuts for these (setup, run, sim, test, lint, format, check, health). The underlying commands:
+
 - Setup: `python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt`
 - Run: `.venv/bin/python -m server --reload` (then open http://127.0.0.1:8765, or pass `--port`)
 - Headless run: `.venv/bin/python -m server.kernel projects/examples/web-backend.yaml --until 300 --seed 1`

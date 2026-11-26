@@ -54,6 +54,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 
 Open an example from the model menu (`projects/examples/`), and press play.
 
+Or with make: `make setup`, `make run` (`PORT=...` to change), `make check`. `make` lists every target.
+
 Headless run:
 
 ```sh
