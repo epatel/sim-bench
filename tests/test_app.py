@@ -71,17 +71,41 @@ def test_websocket_load_step_and_reset(client):
         ws.send_json({"cmd": "load", "model": MODEL, "seed": 1})
         loaded = ws.receive_json()
         assert loaded["type"] == "loaded" and "gen" in loaded["ports"]
+        # 3 deliveries by t=3.5: about 8 per real second at 8 * 3.5 / 3 sim units per second
+        assert loaded["suggested_speed"] == pytest.approx(9.3)
         first = ws.receive_json()
         assert first["type"] == "frame" and first["now"] == 0 and "summary" in first
 
-        ws.send_json({"cmd": "step"})  # first emit at t=1 -> a send record
+        # a step runs to the next delivery: sent at t=1, delivered after the 0.5 latency
+        ws.send_json({"cmd": "step"})
         frame = ws.receive_json()
-        assert frame["now"] == 1.0
-        assert [r["type"] for r in frame["records"]] == ["send"]
-        assert frame["records"][0]["arrive"] == 1.5
+        assert frame["now"] == 1.5 and frame["step"]
+        assert [r["type"] for r in frame["records"]] == ["send", "deliver"]
+        assert frame["records"][1]["link"] == frame["records"][0]["link"]
+        assert frame["records"][1]["entity"] == "done"
+
+        for _ in range(3):  # two more deliveries, then nothing is left
+            ws.send_json({"cmd": "step"})
+            frame = ws.receive_json()
+        assert frame["now"] == 3.5 and frame["pending"] == 0
 
         ws.send_json({"cmd": "reset"})
         assert ws.receive_json()["now"] == 0
+
+
+def test_suggested_speed_follows_the_delivery_rate():
+    from server.kernel import ModelSpec, Simulation
+
+    def speed(interarrival):
+        model = {**MODEL, "entities": [
+            {"id": "gen", "type": "source", "params": {"interarrival": interarrival}},
+            {"id": "done", "type": "sink"},
+        ]}  # fmt: skip
+        return app_module.suggested_speed(Simulation(ModelSpec.model_validate(model)))
+
+    assert speed(1.0) == pytest.approx(8, rel=0.05)  # 1 delivery per sim unit
+    assert speed(0.01) == pytest.approx(0.08, rel=0.05)
+    assert speed(1e9) == app_module.SPEED_MAX  # clamped to the slider
 
 
 def test_websocket_play_runs_to_completion(client):
@@ -95,6 +119,11 @@ def test_websocket_play_runs_to_completion(client):
             if not frame["playing"]:
                 break
         assert frame["summary"]["entities"]["done"]["received"]["value"] == 3
+
+
+def test_frontend_is_revalidated_so_updates_are_never_stale(client):
+    for path in ("/", "/js/main.js", "/css/app.css"):
+        assert client.get(path).headers["cache-control"] == "no-cache", path
 
 
 def test_index_and_static_files_are_served(client):

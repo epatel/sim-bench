@@ -335,6 +335,7 @@ class Simulation:
                 {
                     "type": "deliver",
                     "t": self.now,
+                    "link": ev.link,
                     "entity": ev.entity,
                     "port": ev.key,
                     "msg": ev.data.id,

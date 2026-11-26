@@ -41,6 +41,10 @@ sequenceDiagram
 ```
 
 - `speed` is simulated time per real second. If a frame hits `MAX_EVENTS_PER_FRAME`, the frame says `lagging: true` and the sim falls behind real time instead of freezing the server.
+- **Auto speed.** On `load`, `suggested_speed` runs a fork of the fresh sim for up to 5000 events, counts the message deliveries, and suggests the speed that shows about 8 deliveries per real second, clamped to the slider's range (0.01 to 1000). The `loaded` message carries it. The UI follows it (the label shows `auto`) until the slider is moved, and clicking the label returns to auto. At a fixed 1×, slow models or models with zero-latency links looked frozen.
+- **Step runs to the next message delivery**, not one kernel event. Timers and other internal events run on the way, capped at `STEP_MAX_EVENTS`. The frame has `step: true`. The client animates each delivery along its link in wall time (`STEP_HOP_MS`), then pulses the receiving entity, and the status line names the receiver. The flag comes from the server because a step that first needs a `load` gets the load's frame first.
+- While playing, every delivery pulses its entity (at most one pulse per entity at a time), and zero-latency hops stay visible for `MIN_FLIGHT_MS`. Play on a finished run restarts it.
+- Static files and `/` are served with `Cache-Control: no-cache`. The browser revalidates with the ETag, so an updated JS module is never run from a stale cache. Without this header, browsers guess a cache lifetime.
 - `records` are the kernel listener records, capped at `MAX_RECORDS_PER_FRAME`. The overflow count goes in `dropped_records`. The canvas only needs a sample to animate.
 - The run uses the model as it was sent with `load`. The UI marks itself stale after any edit and sends a fresh `load` on the next play, step or reset.
 

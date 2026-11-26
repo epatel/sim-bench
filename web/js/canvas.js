@@ -7,7 +7,10 @@ const PORT_R = 5;
 const GROUP_PAD = 18;
 const GROUP_HEADER = 22;
 const MAX_FLIGHTS = 3000;
-const MIN_FLIGHT_MS = 180; // zero-latency hops stay visible this long
+const MIN_FLIGHT_MS = 350; // zero-latency hops stay visible this long
+const STEP_HOP_MS = 450; // a stepped delivery travels its link this long, then pulses
+const FLASH_MS = 450;
+const DOT_R = 4;
 
 const C = {
   grid: "#1a2029", node: "#18202a", nodeLine: "#2c3644", text: "#d7dde6", muted: "#8591a3",
@@ -330,18 +333,26 @@ export class Editor extends EventTarget {
     return c.now + Math.min(ahead, c.speed * 0.25); // don't run far past the server
   }
 
-  addRecords(records) {
+  // stepping: the frame came from a step, so deliveries are animated in wall time
+  addRecords(records, { stepping = false } = {}) {
     const wall = performance.now();
     for (const r of records) {
-      if (r.type === "send") {
-        this.flights.push({ link: r.link, t0: r.t, t1: r.arrive, wall });
-      } else if (flashesEntity(r)) {
-        this.flashes.push({ entity: r.entity, wall, color: C.bad });
-      } else if (r.type === "lost") {
-        this.flashes.push({ link: r.link, wall, color: C.bad });
-      }
+      if (r.type === "deliver") this.addDelivery(r, wall, stepping);
+      else if (r.type === "send") this.flights.push({ link: r.link, t0: r.t, t1: r.arrive, wall });
+      else if (flashesEntity(r)) this.flashes.push({ entity: r.entity, wall, rgb: BAD_RGB });
+      else if (r.type === "lost") this.flashes.push({ link: r.link, wall, rgb: BAD_RGB });
     }
     if (this.flights.length > MAX_FLIGHTS) this.flights.splice(0, this.flights.length - MAX_FLIGHTS);
+  }
+
+  addDelivery(r, wall, stepping) {
+    let at = wall;
+    if (stepping && r.link) {
+      this.flights.push({ link: r.link, wall, hop: true });
+      at = wall + STEP_HOP_MS; // pulse when the dot arrives
+    }
+    const busy = this.flashes.some((f) => f.entity === r.entity && f.rgb === ACCENT_RGB && at - f.wall < FLASH_MS / 2);
+    if (!busy) this.flashes.push({ entity: r.entity, wall: at, rgb: ACCENT_RGB });
   }
 
   clearLive() {
@@ -459,10 +470,7 @@ export class Editor extends EventTarget {
     const keep = [];
     ctx.fillStyle = C.accent;
     for (const f of this.flights) {
-      const span = f.t1 - f.t0;
-      const visualSpan = span > 0 ? span : 0;
-      let progress = visualSpan > 0 ? (now - f.t0) / visualSpan : (wall - f.wall) / MIN_FLIGHT_MS;
-      if (visualSpan > 0 && progress >= 1 && wall - f.wall < MIN_FLIGHT_MS) progress = (wall - f.wall) / MIN_FLIGHT_MS;
+      const progress = flightProgress(f, now, wall);
       if (progress > 1) continue;
       keep.push(f);
       if (progress < 0) continue;
@@ -471,7 +479,7 @@ export class Editor extends EventTarget {
       if (!ends) continue;
       const q = bezier(ends[0], ends[1], progress);
       ctx.beginPath();
-      ctx.arc(q.x, q.y, 3.2, 0, Math.PI * 2);
+      ctx.arc(q.x, q.y, DOT_R, 0, Math.PI * 2);
       ctx.fill();
     }
     this.flights = keep;
@@ -480,10 +488,11 @@ export class Editor extends EventTarget {
   drawFlashes(conns) {
     const { ctx } = this;
     const wall = performance.now();
-    this.flashes = this.flashes.filter((f) => wall - f.wall < 450);
+    this.flashes = this.flashes.filter((f) => wall - f.wall < FLASH_MS);
     for (const f of this.flashes) {
-      const a = 1 - (wall - f.wall) / 450;
-      ctx.strokeStyle = `rgba(255,107,107,${a})`;
+      if (wall < f.wall) continue; // scheduled: a stepped hop is still on its way
+      const a = 1 - (wall - f.wall) / FLASH_MS;
+      ctx.strokeStyle = `rgba(${f.rgb},${a})`;
       ctx.lineWidth = 2;
       if (f.entity) {
         const e = this.entity(f.entity);
@@ -701,6 +710,19 @@ const DRAGS = {
 };
 
 // Drops and unrouted messages flash the node red; a machine absorbing a message doesn't.
+const BAD_RGB = "255,107,107";
+const ACCENT_RGB = "245,177,61";
+
+// How far along its link a message dot is (0..1; > 1 means it has arrived).
+function flightProgress(f, now, wall) {
+  if (f.hop) return (wall - f.wall) / STEP_HOP_MS;
+  const span = f.t1 - f.t0;
+  const sinceSent = (wall - f.wall) / MIN_FLIGHT_MS;
+  if (span <= 0) return sinceSent;
+  const progress = (now - f.t0) / span;
+  return progress >= 1 && sinceSent < 1 ? sinceSent : progress; // keep fast hops visible
+}
+
 function flashesEntity(r) {
   if (r.type === "unrouted") return true;
   return r.type === "drop" && r.reason !== "absorbed";

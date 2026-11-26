@@ -7,6 +7,7 @@ import { el } from "./dom.js";
 import { adoptPositions, buildPreview, normalize, positionsOf } from "./proposal.js";
 import { sourceSection } from "./provenance.js";
 import { Results } from "./results.js";
+import { wireRunControls } from "./runbar.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -29,7 +30,10 @@ const state = {
   runLoaded: false,
   runStale: false,
   playing: false,
+  finished: false, // the last run has nothing left to do; play restarts it
   speed: 1,
+  speedAuto: true, // follow the server's suggested speed until the slider is moved
+  suggestedSpeed: null,
 };
 
 function emptyModel() {
@@ -963,73 +967,10 @@ function row(a, b) {
   return tr;
 }
 
-// --- run controls ----------------------------------------------------------------
+// --- run controls (runbar.js) ---------------------------------------------------
 
-function ensureLoaded() {
-  if (!state.runLoaded || state.runStale) {
-    editor.clearLive();
-    run.load(state.model, Number($("seed").value) || 0);
-    run.speed(state.speed);
-    state.runLoaded = true;
-    state.runStale = false;
-    setStatus("");
-  }
-}
-
-$("btn-play").onclick = () => {
-  if (state.playing) return run.pause();
-  ensureLoaded();
-  run.play();
-};
-$("btn-step").onclick = () => {
-  ensureLoaded();
-  run.step();
-};
-$("btn-reset").onclick = () => {
-  state.runStale = true;
-  state.summary = null;
-  ensureLoaded();
-  renderMetrics();
-};
-$("speed").oninput = () => {
-  state.speed = 10 ** Number($("speed").value);
-  $("speed-label").textContent = `${fmt(state.speed)}×`;
-  run.speed(state.speed);
-};
 $("btn-fit").onclick = () => editor.fit();
-
-run.addEventListener("frame", (ev) => {
-  const f = ev.detail;
-  state.playing = f.playing;
-  editor.setClock(f.now, f.playing, state.speed);
-  editor.addRecords(f.records);
-  $("sim-time").textContent = fmt(f.now);
-  $("sim-events").textContent = fmt(f.events);
-  $("btn-play").innerHTML = `<i class="fa-solid ${f.playing ? "fa-pause" : "fa-play"}"></i>`;
-  if (!state.runStale) {
-    if (f.lagging) setStatus("lagging · lower speed", "warn");
-    else if (!f.playing && f.pending === 0 && f.events > 0) setStatus("finished");
-    else setStatus("");
-  }
-  if (f.summary) {
-    state.summary = f.summary;
-    renderMetrics();
-  }
-});
-run.addEventListener("whatif", (ev) => results.show(ev.detail.batch));
-run.addEventListener("loaded", (ev) => {
-  state.ports = ev.detail.ports;
-});
-run.addEventListener("error", (ev) => {
-  state.runLoaded = false;
-  setStatus("run error", "bad");
-  showBanner(ev.detail.message);
-});
-run.addEventListener("closed", () => {
-  state.runLoaded = false;
-  state.playing = false;
-  setStatus("disconnected", "bad");
-});
+wireRunControls({ state, editor, run, results, renderMetrics, showBanner, setStatus });
 
 // --- files -----------------------------------------------------------------------
 

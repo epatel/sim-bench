@@ -36,7 +36,7 @@ input:focus, select:focus, button:focus-visible { outline: 1px solid var(--selec
 .path { width: 190px; font-family: var(--mono); font-size: 12px; }
 .speed { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .speed input { width: 110px; padding: 0; accent-color: var(--accent); }
-#speed-label { font-family: var(--mono); min-width: 52px; color: var(--text); }
+#speed-label { font-family: var(--mono); min-width: 84px; color: var(--text); cursor: pointer; }
 .seed { color: var(--muted); }
 .seed input { width: 64px; }
 .clock { margin-left: auto; display: flex; gap: 14px; color: var(--muted); font-family: var(--mono); white-space: nowrap; }

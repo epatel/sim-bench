@@ -362,6 +362,31 @@ FPS = 30
 MAX_EVENTS_PER_FRAME = 20_000
 MAX_RECORDS_PER_FRAME = 400
 SUMMARY_EVERY = 10  # frames
+STEP_MAX_EVENTS = 100_000  # a step runs internal events until a message is delivered
+SPEED_TRIAL_EVENTS = 5_000
+DELIVERIES_PER_SECOND = 8  # what the suggested speed aims for on screen
+SPEED_MIN, SPEED_MAX = 0.01, 1000.0  # the speed slider's range
+
+
+def suggested_speed(sim: Simulation) -> float | None:
+    """A play speed that shows about DELIVERIES_PER_SECOND message deliveries per second.
+
+    Measured on a fork of the fresh run, so the live run is untouched. None when no
+    message is delivered in the trial (the default speed then stays).
+    """
+    trial = sim.fork()
+    delivered = 0
+
+    def count(record: dict[str, Any]) -> None:
+        nonlocal delivered
+        delivered += record["type"] == "deliver"
+
+    trial.add_listener(count)
+    trial.run(max_events=SPEED_TRIAL_EVENTS)
+    if delivered == 0 or trial.now <= 0:
+        return None
+    speed = DELIVERIES_PER_SECOND * trial.now / delivered
+    return float(f"{min(max(speed, SPEED_MIN), SPEED_MAX):.2g}")
 
 
 class RunSession:
@@ -370,11 +395,12 @@ class RunSession:
     Client -> server: {"cmd": "load", "model": {...}, "seed": int}
                       {"cmd": "play"} | {"cmd": "pause"} | {"cmd": "step"}
                       {"cmd": "reset"} | {"cmd": "speed", "value": float}
-    Server -> client: {"type": "loaded", "ports": {...}}
-                      {"type": "frame", "now", "playing", "events", "lagging",
+    Server -> client: {"type": "loaded", "ports": {...}, "suggested_speed": float | None}
+                      {"type": "frame", "now", "playing", "events", "lagging", "step",
                        "records": [...], "dropped_records": int, "summary"?: {...}}
                       {"type": "error", "message": str}
-    ``speed`` is simulated time units per real second.
+    ``speed`` is simulated time units per real second. ``step`` runs until the next
+    message is delivered (internal events such as timers run on the way).
     """
 
     def __init__(self, ws: WebSocket) -> None:
@@ -388,8 +414,10 @@ class RunSession:
         self.records: list[dict[str, Any]] = []
         self.dropped_records = 0
         self.frame_no = 0
+        self.delivered = 0  # deliveries since the current step began
 
     def _collect(self, record: dict[str, Any]) -> None:
+        self.delivered += record["type"] == "deliver"
         if len(self.records) < MAX_RECORDS_PER_FRAME:
             self.records.append(record)
         else:
@@ -436,7 +464,8 @@ class RunSession:
         self.seed = int(msg.get("seed", 0))
         self._build()
         ports = {k: {"inputs": i, "outputs": o} for k, (i, o) in sim.ports.items()}
-        await self.ws.send_json({"type": "loaded", "ports": ports})
+        speed = suggested_speed(sim)
+        await self.ws.send_json({"type": "loaded", "ports": ports, "suggested_speed": speed})
         await self.send_frame(summary=True)
 
     async def play(self, msg: dict[str, Any]) -> None:
@@ -448,8 +477,11 @@ class RunSession:
 
     async def step(self, msg: dict[str, Any]) -> None:
         self.playing = False
-        self.sim.step()
-        await self.send_frame(summary=True)
+        self.delivered = 0
+        for _ in range(STEP_MAX_EVENTS):
+            if self.sim.step() is None or self.delivered:
+                break
+        await self.send_frame(summary=True, step=True)
 
     async def reset(self, msg: dict[str, Any]) -> None:
         self._build()
@@ -475,7 +507,9 @@ class RunSession:
         store().finish(batch_id)
         await self.ws.send_json({"type": "whatif", "batch": batch_id})
 
-    async def send_frame(self, summary: bool = False, lagging: bool = False) -> None:
+    async def send_frame(
+        self, summary: bool = False, lagging: bool = False, step: bool = False
+    ) -> None:
         sim = self.sim
         assert sim is not None
         frame: dict[str, Any] = {
@@ -485,6 +519,7 @@ class RunSession:
             "events": sim.events_processed,
             "pending": sim.pending,
             "lagging": lagging,
+            "step": step,  # the answer to a step: the client animates its deliveries
             "records": self.records,
             "dropped_records": self.dropped_records,
         }
@@ -678,9 +713,21 @@ async def agent_socket(ws: WebSocket) -> None:
 # --- static frontend ----------------------------------------------------------
 
 
+# The browser revalidates every file (a cheap 304 when unchanged), so after an update it
+# never keeps running stale JS modules; without this it guesses a cache lifetime.
+NO_CACHE = {"Cache-Control": "no-cache"}
+
+
+class FreshStaticFiles(StaticFiles):
+    def file_response(self, *args: Any, **kwargs: Any):
+        response = super().file_response(*args, **kwargs)
+        response.headers.update(NO_CACHE)
+        return response
+
+
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(WEB / "index.html")
+    return FileResponse(WEB / "index.html", headers=NO_CACHE)
 
 
-app.mount("/", StaticFiles(directory=WEB), name="web")
+app.mount("/", FreshStaticFiles(directory=WEB), name="web")
