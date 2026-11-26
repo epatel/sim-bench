@@ -62,3 +62,7 @@ get_model, list_types, add_entity, update_entity, remove_entity, connect, update
 - ```` ```mermaid ```` fences become diagrams through `renderDiagrams`.
   - It loads `web/vendor/mermaid/mermaid.min.js` lazily on the first diagram, with `securityLevel: "strict"` and the dark theme.
   - If the bundle is missing, or a diagram fails to parse, the source stays visible as code with a short note.
+- The bundle isn't in git. `scripts/vendor_mermaid.py` fetches it (`make vendor`, which `make setup` and the server's `deploy/remote-install.sh` also run).
+  - The version and the SHA-256 of `dist/mermaid.min.js` are pinned in the script. A download that doesn't match is refused, and a copy already at the pinned version is left alone.
+  - `make vendor-check`, which `make deploy` also runs, compares the pin with npm's latest and prints the new VERSION and SHA256 to paste in.
+  - The pin is 12.3.0, checked on 2026-11-27.

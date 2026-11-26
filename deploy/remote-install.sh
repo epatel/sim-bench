@@ -6,6 +6,8 @@ cd "$(dirname "$0")/.."
 
 test -x .venv/bin/python || python3 -m venv .venv
 .venv/bin/pip install -q -r requirements.txt
+# diagrams in agent replies; without it they show as code, so a failure isn't fatal
+python3 scripts/vendor_mermaid.py || echo "mermaid not fetched; diagrams will show as code"
 
 if [ ! -f .env ]; then
   umask 077

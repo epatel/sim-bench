@@ -9,3 +9,5 @@ __pycache__/
 *.sqlite3
 .simbench/
 .env
+# fetched by scripts/vendor_mermaid.py (make vendor / make deploy)
+web/vendor/mermaid/

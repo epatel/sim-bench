@@ -83,7 +83,7 @@ Set `SIMBENCH_TOKEN` (in the environment or in `.env`) and every API and WebSock
 request needs that token. The root URL becomes a landing page that asks for it, or takes
 it once from `?token=...`, and keeps it in the browser's localStorage. All frontend URLs
 are relative, so the app works behind a reverse proxy under a path prefix.
-`make deploy` copies the tree to a server over ssh and restarts a systemd unit. See
+`make vendor` fetches the mermaid bundle for diagrams in agent replies (pinned and checksummed; `make setup` does it too). `make deploy` copies the tree to a server over ssh and restarts a systemd unit. See
 `deploy/` and [cards/deployment.md](cards/deployment.md).
 
 ## Tests and checks

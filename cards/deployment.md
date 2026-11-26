@@ -24,6 +24,7 @@ Read when changing the access token, URLs in the frontend, or `deploy/`.
   `deploy/remote-install.sh`, which creates the venv, makes a random token in `.env`
   on first run, installs `deploy/sim-bench.service` (port 8780, loopback) and
   restarts the service.
+- The server fetches its own mermaid bundle (`scripts/vendor_mermaid.py`) during the install. rsync excludes `web/vendor/mermaid/`, so `make deploy` neither copies nor deletes it. A failed fetch doesn't stop the deploy; diagrams then show as code.
 - **nginx.** `deploy/nginx-sim-bench.conf` is the location block, with upgrade
   headers, no buffering and long timeouts. On home.memention.net it is appended to
   `/etc/nginx/snippets/memention-endpoints.conf` (443 only). That was done by hand

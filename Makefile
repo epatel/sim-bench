@@ -11,7 +11,7 @@ DEPLOY_HOST ?= home
 DEPLOY_DIR  ?= sim-bench
 
 .DEFAULT_GOAL := help
-.PHONY: help setup run serve sim test lint format check health clean deploy
+.PHONY: help setup run serve sim test lint format check health clean deploy vendor vendor-check
 
 help: ## list the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  make %-8s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -25,7 +25,13 @@ $(STAMP): requirements.txt requirements-dev.txt
 	$(PY) -m pip install -q -r requirements-dev.txt
 	@touch $(STAMP)
 
-setup: $(STAMP) ## create .venv and install dependencies
+setup: $(STAMP) vendor ## create .venv, install dependencies, fetch the mermaid bundle
+
+vendor: ## fetch the pinned mermaid bundle (skipped when it is already there)
+	python3 scripts/vendor_mermaid.py
+
+vendor-check: ## compare the pinned mermaid with the latest release
+	python3 scripts/vendor_mermaid.py --check
 
 run: $(STAMP) ## start the workbench with auto-reload (port 8765, or PORT=...)
 	$(PY) -m server --reload --port $(PORT)
@@ -58,5 +64,6 @@ clean: ## remove caches (keeps .venv and runs.sqlite3)
 	find . -name __pycache__ -type d -not -path "./$(VENV)/*" -exec rm -rf {} +
 
 deploy: ## copy the working tree to DEPLOY_HOST and restart the service there
+	-@python3 scripts/vendor_mermaid.py --check
 	rsync -az --delete --exclude-from=deploy/rsync-exclude ./ $(DEPLOY_HOST):$(DEPLOY_DIR)/
 	ssh $(DEPLOY_HOST) 'cd $(DEPLOY_DIR) && deploy/remote-install.sh'

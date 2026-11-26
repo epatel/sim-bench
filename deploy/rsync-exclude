@@ -11,5 +11,6 @@
 - .ruff_cache/
 - .claude/
 - initial-idea.md
+- /web/vendor/mermaid/
 + /projects/examples/
 - /projects/*
