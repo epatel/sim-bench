@@ -99,13 +99,20 @@ table.metrics td:last-child { text-align: right; }
 /* palette sections (one per library) */
 details.lib { margin-bottom: 12px; }
 details.lib > summary {
+  display: flex; align-items: center; gap: 6px;
   cursor: pointer; list-style: none; user-select: none;
   font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
-  font-weight: 600; padding: 4px 2px 8px;
+  font-weight: 600; padding: 5px 6px; margin: 0 -6px 6px; border-radius: 6px;
 }
+details.lib > summary:hover { color: var(--text); background: var(--panel-2); }
 details.lib > summary::-webkit-details-marker { display: none; }
-details.lib > summary::before { content: "▸"; display: inline-block; width: 12px; transition: transform .15s; }
-details.lib[open] > summary::before { transform: rotate(90deg); }
+details.lib > summary i { font-size: 9px; width: 10px; transition: transform .15s; }
+details.lib[open] > summary i { transform: rotate(90deg); }
+details.lib > summary .count {
+  margin-left: auto; font-weight: 500; letter-spacing: 0; color: var(--muted);
+  background: var(--panel-2); border-radius: 8px; padding: 0 6px; font-size: 10px;
+}
+details.lib:not([open]) { margin-bottom: 4px; }
 .type-card.template { border-style: dashed; border-color: #3a3222; }
 .type-card.template i { color: #d9b46a; }
 .tag {
@@ -113,7 +120,17 @@ details.lib[open] > summary::before { transform: rotate(90deg); }
   text-transform: uppercase; letter-spacing: .05em; color: #d9b46a; border: 1px solid #4a3d22;
 }
 .sub.chain { font-family: var(--mono); font-size: 11.5px; margin-top: -8px; }
-.palette > h2 { display: none; }
+/* the palette drawer folds to a narrow rail */
+.drawer-head { display: flex; align-items: center; justify-content: space-between; margin: -4px 0 8px; }
+.drawer-head h2 { margin: 0; }
+.drawer-head button { min-width: 0; padding: 3px 7px; color: var(--muted); background: none; border-color: transparent; }
+.drawer-head button:hover { color: var(--text); border-color: var(--line); }
+main { transition: grid-template-columns .15s ease; }
+main.palette-closed { grid-template-columns: 40px 1fr 300px; }
+main.palette-closed .palette { padding: 12px 4px; overflow: hidden; }
+main.palette-closed .palette > :not(.drawer-head),
+main.palette-closed .drawer-head h2 { display: none; }
+main.palette-closed .drawer-head { justify-content: center; }
 
 /* composite mode switch */
 .segmented { display: inline-flex; margin: 0 0 14px; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
@@ -194,6 +211,27 @@ details.lib[open] > summary::before { transform: rotate(90deg); }
 .ag-bot code, .ag-bot pre { font: 11.5px var(--mono); background: var(--panel-2); border-radius: 4px; }
 .ag-bot code { padding: 0 4px; }
 .ag-bot pre { padding: 6px 8px; overflow-x: auto; }
+/* markdown in agent replies (js/markdown.js) */
+.ag-bot > :first-child { margin-top: 0; }
+.ag-bot > :last-child { margin-bottom: 0; }
+.ag-bot p { margin: 0 0 8px; }
+.ag-bot ol { margin: 4px 0; padding-left: 20px; }
+.ag-bot li > ul, .ag-bot li > ol { margin: 2px 0; }
+.ag-bot .md-h { margin: 12px 0 6px; font-size: 13px; font-weight: 600; color: var(--text); }
+.ag-bot h3.md-h { font-size: 14px; }
+.ag-bot pre code { padding: 0; background: none; }
+.ag-bot blockquote { margin: 6px 0; padding: 2px 10px; border-left: 2px solid var(--line); color: var(--muted); }
+.ag-bot hr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
+.ag-bot a { color: var(--select); }
+.ag-bot del { color: var(--muted); }
+.md-table-wrap { overflow-x: auto; margin: 6px 0 8px; }
+.md-table { border-collapse: collapse; font-size: 12px; }
+.md-table th, .md-table td { border: 1px solid var(--line); padding: 3px 7px; text-align: left; vertical-align: top; }
+.md-table th { background: var(--panel-2); font-weight: 600; }
+.md-mermaid { margin: 6px 0 8px; padding: 8px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; }
+.md-mermaid svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.md-mermaid pre { margin: 0; background: none; padding: 0; }
+.md-note { color: var(--muted); font-size: 11px; margin-top: 4px; }
 .ag-tool { font-size: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); }
 .ag-tool summary { padding: 5px 8px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
 .ag-tool summary b { color: var(--text); font-weight: 600; }

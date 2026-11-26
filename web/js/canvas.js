@@ -32,7 +32,7 @@ export class Editor extends EventTarget {
     this.ctx = canvas.getContext("2d");
     this.app = app; // { model, portsOf(id), summary, addEntity, connect, deleteSelection }
     this.view = { x: 0, y: 0, scale: 1 };
-    this.selection = null; // {kind: "entity"|"link", id}
+    this.selection = null; // {kind: "entity"|"link"|"group", id} or {kind: "multi", id: [entity ids]}
     this.drag = null;
     this.hoverPort = null;
     this.flights = [];
@@ -238,12 +238,7 @@ export class Editor extends EventTarget {
     window.addEventListener("mousemove", (ev) => this.onMove(ev));
     window.addEventListener("mouseup", (ev) => this.onUp(ev));
     cv.addEventListener("wheel", (ev) => this.onWheel(ev), { passive: false });
-    cv.addEventListener("keydown", (ev) => {
-      if ((ev.key === "Delete" || ev.key === "Backspace") && this.selection) {
-        ev.preventDefault();
-        this.app.deleteSelection();
-      }
-    });
+    cv.addEventListener("keydown", (ev) => this.onKey(ev));
     cv.addEventListener("dblclick", (ev) => {
       const p = this.toWorld(ev);
       const header = this.hitGroupHeader(p);
@@ -283,18 +278,64 @@ export class Editor extends EventTarget {
       return;
     }
     const ent = this.hitEntity(p);
-    if (ent) {
-      this.select({ kind: ent.collapsed ? "group" : "entity", id: ent.id });
-      this.drag = { kind: "move", entity: ent, dx: p.x - ent.pos[0], dy: p.y - ent.pos[1], moved: false };
-      return;
-    }
+    if (ent) return this.downOnEntity(ent, p, ev);
     const conn = this.hitLink(p);
     if (conn) {
       this.select({ kind: "link", id: linkKey(conn) });
       return;
     }
+    if (ev.shiftKey) {
+      this.drag = { kind: "marquee", start: p, to: p, base: this.selectedIds() };
+      return;
+    }
     this.select(null);
     this.drag = { kind: "pan", sx: ev.clientX, sy: ev.clientY, vx: this.view.x, vy: this.view.y };
+  }
+
+  // Shift/Cmd/Ctrl-click toggles an entity in the selection; dragging one of several
+  // selected entities moves them all.
+  downOnEntity(ent, p, ev) {
+    const ids = this.selectedIds();
+    const toggling = ev.shiftKey || ev.metaKey || ev.ctrlKey;
+    if (toggling && !ent.collapsed) {
+      this.selectEntities(ids.includes(ent.id) ? ids.filter((x) => x !== ent.id) : [...ids, ent.id]);
+      return;
+    }
+    if (ids.length > 1 && ids.includes(ent.id)) {
+      const members = this.app.model.entities.filter((e) => ids.includes(e.id));
+      this.drag = { kind: "move-group", members, start: p, origins: members.map((e) => [...e.pos]) };
+      return;
+    }
+    this.select({ kind: ent.collapsed ? "group" : "entity", id: ent.id });
+    this.drag = { kind: "move", entity: ent, dx: p.x - ent.pos[0], dy: p.y - ent.pos[1], moved: false };
+  }
+
+  onKey(ev) {
+    const command = ev.metaKey || ev.ctrlKey ? `mod+${ev.key}` : ev.key;
+    const action = CANVAS_KEYS[command];
+    if (!action) return;
+    ev.preventDefault();
+    action.call(this);
+  }
+
+  // Ids of the selected (plain) entities: none, one, or several.
+  selectedIds() {
+    const sel = this.selection;
+    if (sel?.kind === "multi") return sel.id;
+    return sel?.kind === "entity" ? [sel.id] : [];
+  }
+
+  selectEntities(ids) {
+    const unique = [...new Set(ids)];
+    if (unique.length > 1) this.select({ kind: "multi", id: unique });
+    else this.select(unique.length ? { kind: "entity", id: unique[0] } : null);
+  }
+
+  // Plain entities whose card overlaps the rectangle between points a and b.
+  entitiesIn(a, b) {
+    const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+    return this.nodes().filter((e) => !e.collapsed && e.pos[0] < x1 && e.pos[0] + NODE_W > x0
+      && e.pos[1] < y1 && e.pos[1] + NODE_H > y0).map((e) => e.id);
   }
 
   onMove(ev) {
@@ -311,6 +352,7 @@ export class Editor extends EventTarget {
     this.drag = null;
     if (!d) return;
     if (d.kind === "move" && d.moved) this.dispatchEvent(new CustomEvent("moved"));
+    if (d.kind === "marquee") this.selectEntities([...d.base, ...this.entitiesIn(d.start, d.to)]);
     if (d.kind === "link") {
       const target = this.hitPort(this.toWorld(ev));
       if (target && !target.isOut) this.app.connect(`${d.from.entity}.${d.from.port}`, `${target.entity}.${target.port}`);
@@ -406,6 +448,18 @@ export class Editor extends EventTarget {
       this.strokeBezier(this.drag.from, this.drag.to);
       ctx.setLineDash([]);
     }
+    if (this.drag?.kind === "marquee") this.drawMarquee(this.drag.start, this.drag.to);
+  }
+
+  drawMarquee(a, b) {
+    const { ctx } = this;
+    ctx.fillStyle = "rgba(76,194,255,0.08)";
+    ctx.strokeStyle = C.select;
+    ctx.lineWidth = 1 / this.view.scale;
+    ctx.setLineDash([4 / this.view.scale, 3 / this.view.scale]);
+    ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+    ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+    ctx.setLineDash([]);
   }
 
   drawGroups() {
@@ -528,6 +582,7 @@ export class Editor extends EventTarget {
   }
 
   isSelected(e) {
+    if (this.selection?.kind === "multi") return !e.collapsed && this.selection.id.includes(e.id);
     const kind = e.collapsed ? "group" : "entity";
     return this.selection?.kind === kind && this.selection.id === e.id;
   }
@@ -718,6 +773,22 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.roundRect(x, y, w, h, r);
 }
 
+// Keys on the focused canvas (called with `this` = the Editor).
+const CANVAS_KEYS = {
+  Delete() {
+    if (this.selection) this.app.deleteSelection();
+  },
+  Backspace() {
+    if (this.selection) this.app.deleteSelection();
+  },
+  Escape() {
+    this.select(null);
+  },
+  "mod+a"() {
+    this.selectEntities(this.nodes().filter((e) => !e.collapsed).map((e) => e.id));
+  },
+};
+
 // What a mouse move does for each kind of drag (called with `this` = the Editor).
 const DRAGS = {
   pan(d, p, ev) {
@@ -734,6 +805,9 @@ const DRAGS = {
     d.members.forEach((e, i) => {
       e.pos = [d.origins[i][0] + dx, d.origins[i][1] + dy];
     });
+  },
+  marquee(d, p) {
+    d.to = p;
   },
   link(d, p) {
     d.to = p;

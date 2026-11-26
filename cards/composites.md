@@ -54,6 +54,12 @@ flowchart LR
 - Double-click a frame header or a collapsed node to toggle the mode. Abstract mode needs an `abstract` behavior first.
 - The group inspector has: a mode switch, the boundary maps as JSON, the stand-in type and params, calibration details, a Calibrate button, Focus (expand this group and collapse every other group that has an abstract behavior), Ungroup (rewrites `group.port` references to inner ports first), and live metrics (the probe when expanded, the stand-in's metrics when abstract).
 - Inserting a template creates its `GroupSpec` from the template's `inputs` and `outputs`.
+- The entity inspector's **group** field, and the same field for a multi-selection, move entities into a group or out of one (`js/groups.js` `setEntityGroup`).
+  - Every touched group's spec is brought back in step with its members. It is created when the group is new, and removed when the group ends up empty.
+  - `group.port` references are inlined first.
+  - Boundary names that still map to a member port are kept, and so are ports no link touches. Ports wired only inside the group are dropped.
+  - Each port that a link newly crosses gets a boundary entry named after the port, or `entity_port` when that name is taken.
+  - A group name must not contain `.` or equal an entity id.
 
 ## Known limits
 

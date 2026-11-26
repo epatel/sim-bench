@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from . import agent
+from . import agent, auth
 from .kernel import (
     CompositeError,
     Library,
@@ -53,7 +53,10 @@ LOCAL = ROOT / ".simbench"  # machine-specific state (gitignored)
 LIBRARIES = ROOT / "libraries"
 WEB = ROOT / "web"
 
+TOKEN = auth.load_token(ROOT / ".env")  # None on localhost: no gate, no landing page
+
 app = FastAPI(title="Simulation Workbench")
+app.add_middleware(auth.TokenGate, token=TOKEN)
 log = logging.getLogger("simbench")
 
 
@@ -98,6 +101,12 @@ def check_model(data: Any, library: Library | None = None) -> tuple[ModelSpec, S
         first = e.errors()[0]
         where = ".".join(str(p) for p in first["loc"])
         raise ModelError(f"{where}: {first['msg']}") from e
+
+
+@app.get("/api/auth")
+def check_token() -> dict[str, bool]:
+    """Reached only past the token gate, so a 200 means the token is right."""
+    return {"ok": True, "gated": TOKEN is not None}
 
 
 @app.get("/api/types")
@@ -551,9 +560,14 @@ class RunSession:
             await self.handle(await self.ws.receive_json())
 
 
+async def accept(ws: WebSocket) -> None:
+    """Accept, selecting our subprotocol when the browser offered it (see ``auth``)."""
+    await ws.accept(subprotocol=auth.SUBPROTOCOL if auth.wants_subprotocol(ws.scope) else None)
+
+
 @app.websocket("/ws/run")
 async def run_socket(ws: WebSocket) -> None:
-    await ws.accept()
+    await accept(ws)
     session = RunSession(ws)
     ticker = asyncio.create_task(session.tick_loop())
     try:
@@ -699,7 +713,7 @@ class AgentChat:
 
 @app.websocket("/ws/agent")
 async def agent_socket(ws: WebSocket) -> None:
-    await ws.accept()
+    await accept(ws)
     chat = AgentChat(ws)
     try:
         while True:
@@ -727,7 +741,8 @@ class FreshStaticFiles(StaticFiles):
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(WEB / "index.html", headers=NO_CACHE)
+    page = "landing.html" if TOKEN else "index.html"  # the landing page asks for the token
+    return FileResponse(WEB / page, headers=NO_CACHE)
 
 
 app.mount("/", FreshStaticFiles(directory=WEB), name="web")

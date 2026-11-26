@@ -1,0 +1,15 @@
+# Rules for `make deploy` (rsync). Excluded paths are never copied, and rsync --delete
+# leaves them alone on the server: local state, secrets, caches, saved models.
+- .git/
+- .venv/
+- .env
+- .simbench/
+- *.sqlite3
+- *.sqlite3-*
+- __pycache__/
+- .pytest_cache/
+- .ruff_cache/
+- .claude/
+- initial-idea.md
++ /projects/examples/
+- /projects/*

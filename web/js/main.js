@@ -1,6 +1,9 @@
 // App wiring: toolbar, palette, inspector, validation and the live run.
 import { api, RunClient } from "./api.js";
 import { Editor, NODE_H, NODE_W, fmt, linkKey, splitRef } from "./canvas.js";
+import { layout, layoutFragment } from "./layout.js";
+import { inspectMulti } from "./multi.js";
+import { groupSpec, inlineBoundaryRefs, removeGroupSpec, setEntityGroup } from "./groups.js";
 import { loadIconFont } from "./icons.js";
 import { AgentChat } from "./agent.js";
 import { el } from "./dom.js";
@@ -51,7 +54,7 @@ const app = {
   get summary() { return state.summary; },
 
   portsOf(id) {
-    const g = groupSpec(id); // a collapsed group shows its boundary ports
+    const g = groupSpec(state.model, id); // a collapsed group shows its boundary ports
     if (g) return { inputs: Object.keys(g.inputs || {}), outputs: Object.keys(g.outputs || {}) };
     if (state.ports[id]) return state.ports[id];
     const e = state.model.entities.find((x) => x.id === id);
@@ -68,7 +71,7 @@ const app = {
   },
 
   toggleGroup(id) {
-    const g = groupSpec(id);
+    const g = groupSpec(state.model, id);
     if (!g) return showBanner(`Group ${id} has no boundary yet. Select it and make it a composite first.`);
     if (g.mode === "abstract") g.mode = "expanded";
     else if (!g.abstract) return showBanner(`Calibrate or set an abstract behavior for ${id} first.`);
@@ -106,12 +109,13 @@ const REMOVERS = {
   entity: (id) => removeEntities(new Set([id])),
   group: (id) => {
     const members = state.model.entities.filter((e) => e.group === id).map((e) => e.id);
-    removeGroupSpec(id);
+    removeGroupSpec(state.model, id);
     removeEntities(new Set([...members, id])); // the id also drops links to "group.port"
   },
   link: (id) => {
     state.model.connections = state.model.connections.filter((c) => linkKey(c) !== id);
   },
+  multi: (ids) => removeEntities(new Set(ids)),
 };
 
 function removeEntities(gone) {
@@ -167,6 +171,7 @@ function selectionExists(sel) {
   if (sel.kind === "entity") return state.model.entities.some((e) => e.id === sel.id);
   if (sel.kind === "link") return state.model.connections.some((c) => linkKey(c) === sel.id);
   if (sel.kind === "group") return state.model.groups.some((g) => g.id === sel.id);
+  if (sel.kind === "multi") return sel.id.every((id) => state.model.entities.some((e) => e.id === id));
   return true;
 }
 
@@ -216,24 +221,6 @@ async function validateNow() {
 
 // --- groups (composites) ----------------------------------------------------------
 
-function groupSpec(id) {
-  return (state.model.groups || []).find((g) => g.id === id);
-}
-
-function removeGroupSpec(id) {
-  state.model.groups = (state.model.groups || []).filter((g) => g.id !== id);
-}
-
-// Rewrite "group.port" references to the inner ports they map to.
-function inlineBoundaryRefs(g) {
-  for (const c of state.model.connections) {
-    const [fe, fp] = splitRef(c.from);
-    if (fe === g.id && g.outputs?.[fp]) c.from = g.outputs[fp];
-    const [te, tp] = splitRef(c.to);
-    if (te === g.id && g.inputs?.[tp]) c.to = g.inputs[tp];
-  }
-}
-
 function uniqueId(base) {
   const ids = new Set(state.model.entities.map((e) => e.id));
   for (let i = 1; ; i++) if (!ids.has(`${base}${i}`)) return `${base}${i}`;
@@ -266,51 +253,6 @@ function renameEntity(oldId, newId) {
   return true;
 }
 
-// Place entities that have no position: columns by distance from the sources.
-function layout(model) {
-  if (model.entities.some((e) => !e.pos)) layoutFragment(model.entities, model.connections, null);
-}
-
-// Lay out `entities` lacking pos in columns, starting at `origin` (or 0,0).
-function layoutFragment(entities, connections, origin) {
-  const model = { entities, connections };
-  const ox = origin ? origin.x - NODE_W / 2 : 0;
-  const oy = origin ? origin.y - NODE_H / 2 : 0;
-  const next = new Map();
-  for (const c of model.connections) {
-    const a = splitRef(c.from)[0], b = splitRef(c.to)[0];
-    if (!next.has(a)) next.set(a, []);
-    next.get(a).push(b);
-  }
-  const incoming = new Set(model.connections.map((c) => splitRef(c.to)[0]));
-  const depth = new Map();
-  const queue = model.entities.filter((e) => !incoming.has(e.id)).map((e) => e.id);
-  queue.forEach((id) => depth.set(id, 0));
-  while (queue.length) {
-    const id = queue.shift();
-    for (const n of next.get(id) || []) {
-      if (!depth.has(n)) {
-        depth.set(n, depth.get(id) + 1);
-        queue.push(n);
-      }
-    }
-  }
-  const todo = model.entities.filter((e) => !e.pos);
-  const perColumn = new Map();
-  for (const e of todo) {
-    const d = depth.get(e.id) ?? 0;
-    perColumn.set(d, (perColumn.get(d) || 0) + 1);
-  }
-  const rows = new Map();
-  for (const e of todo) {
-    const d = depth.get(e.id) ?? 0;
-    const r = rows.get(d) || 0;
-    rows.set(d, r + 1);
-    const centered = r - (perColumn.get(d) - 1) / 2; // center each column on the origin row
-    e.pos = [Math.round(ox + d * (NODE_W + 90)), Math.round(oy + centered * (NODE_H + 60))];
-  }
-}
-
 function setModel(model, path) {
   normalize(model);
   layout(model);
@@ -331,6 +273,16 @@ function setModel(model, path) {
 
 // --- palette -----------------------------------------------------------------
 
+// Which palette sections are closed, kept across reloads.
+const CLOSED_KEY = "sim-bench-closed-libraries";
+const closedLibs = new Set(JSON.parse(localStorage.getItem(CLOSED_KEY) || "[]"));
+
+function rememberLib(name, open) {
+  if (open) closedLibs.delete(name);
+  else closedLibs.add(name);
+  localStorage.setItem(CLOSED_KEY, JSON.stringify([...closedLibs]));
+}
+
 function renderPalette() {
   const root = $("palette");
   root.innerHTML = "";
@@ -339,14 +291,26 @@ function renderPalette() {
   for (const sec of sections) {
     const types = Object.values(state.types).filter((t) => t.library === sec.name);
     const templates = Object.values(state.templates).filter((t) => t.library === sec.name);
-    if (!types.length && !templates.length) continue;
-    const details = el("details", { class: "lib", open: "" });
-    const summary = el("summary", { title: sec.description }, sec.title);
-    details.append(summary);
-    for (const t of types) details.append(typeCard(t));
-    for (const t of templates) details.append(templateCard(t));
-    root.append(details);
+    const cards = [...types.map(typeCard), ...templates.map(templateCard)];
+    if (cards.length) root.append(paletteSection(root, sec, cards));
   }
+}
+
+// One foldable library section; Alt-click on its header folds every section.
+function paletteSection(root, sec, cards) {
+  const details = el("details", { class: "lib", ...(closedLibs.has(sec.name) ? {} : { open: "" }) });
+  const summary = el("summary", { title: `${sec.description}\n(Alt-click: open or close all)` });
+  summary.append(el("i", { class: "fa-solid fa-chevron-right" }), el("span", {}, sec.title),
+    el("span", { class: "count" }, String(cards.length)));
+  summary.addEventListener("click", (ev) => {
+    if (!ev.altKey) return;
+    ev.preventDefault();
+    const open = !details.open;
+    for (const d of root.querySelectorAll("details.lib")) d.open = open;
+  });
+  details.addEventListener("toggle", () => rememberLib(sec.name, details.open));
+  details.append(summary, ...cards);
+  return details;
 }
 
 function shortName(id) {
@@ -412,6 +376,9 @@ async function insertTemplate(id, args = {}, prefix = null, origin = viewCenter(
 
 // One inspector per selection kind; each returns false when its target is gone.
 const INSPECTORS = {
+  multi: (root, ids) => inspectMulti(root, ids, {
+    model: state.model, changed, showBanner, remove: () => app.deleteSelection(),
+  }),
   entity(root, id) {
     const e = state.model.entities.find((x) => x.id === id);
     return e && inspectEntity(root, e) !== false;
@@ -426,7 +393,7 @@ const INSPECTORS = {
   },
   group(root, id) {
     const members = state.model.entities.filter((e) => e.group === id);
-    if (!members.length && !groupSpec(id)) return false;
+    if (!members.length && !groupSpec(state.model, id)) return false;
     inspectGroup(root, id, members);
     return true;
   },
@@ -467,7 +434,7 @@ function inspectTemplate(root, t) {
 }
 
 function inspectGroup(root, gid, members) {
-  const g = groupSpec(gid);
+  const g = groupSpec(state.model, gid);
   root.append(el("h2", {}, g ? "Composite" : "Group"));
   const title = el("h3");
   title.append(el("i", { class: "fa-solid fa-layer-group" }), ` ${g?.name || gid}`);
@@ -509,10 +476,10 @@ function membersTable(members) {
 function groupActions(gid, members, extra = []) {
   const actions = el("div", { class: "row-actions" });
   const ungroup = button("fa-object-ungroup", "Ungroup", () => {
-    const g = groupSpec(gid);
+    const g = groupSpec(state.model, gid);
     if (g) {
-      inlineBoundaryRefs(g);
-      removeGroupSpec(gid);
+      inlineBoundaryRefs(state.model, g);
+      removeGroupSpec(state.model, gid);
     }
     for (const e of members) delete e.group;
     editor.select(null);
@@ -741,6 +708,7 @@ function inspectEntity(root, e) {
   });
   root.append(idField);
   root.append(textField("label", e.name || "", (v) => { if (v) e.name = v; else delete e.name; }));
+  root.append(groupField(e));
   // layout only: the canvas redraws every frame, and the run doesn't need a reload
   root.append(paramField(e, "dynamic_ports", {
     type: "bool", default: false, help: "ports move to face what they link to",
@@ -758,6 +726,26 @@ function inspectEntity(root, e) {
   root.append(el("h2", {}, "Metrics"));
   root.append(el("div", { id: "metrics" }));
   renderMetrics();
+}
+
+// Typing a name moves the entity into that group (made a composite if new); empty takes it out.
+function groupField(e) {
+  const f = textField("group", e.group || "", (v, input) => {
+    const problem = setEntityGroup(state.model, e, v);
+    if (problem) {
+      input.classList.add("invalid");
+      showBanner(problem);
+      return;
+    }
+    changed();
+  }, { silent: true });
+  const input = f.querySelector("input");
+  input.placeholder = "none";
+  input.setAttribute("list", "group-names");
+  const names = el("datalist", { id: "group-names" });
+  for (const g of state.model.groups || []) names.append(el("option", { value: g.id }));
+  f.append(names);
+  return f;
 }
 
 function entityHeader(root, e, type) {
@@ -810,7 +798,7 @@ const METRICS = {
   entity: (s, id) => s.entities[id],
   link: (s, id) => s.links[id],
   // an abstract group's stand-in has entity metrics; an expanded one has a boundary probe
-  group: (s, id) => (groupSpec(id)?.mode === "abstract" ? s.entities[id] : s.groups?.[id]),
+  group: (s, id) => (groupSpec(state.model, id)?.mode === "abstract" ? s.entities[id] : s.groups?.[id]),
 };
 
 function metricsFor(sel, s) {
@@ -885,6 +873,18 @@ function row(a, b) {
 // --- run controls (runbar.js) ---------------------------------------------------
 
 $("btn-fit").onclick = () => editor.fit();
+
+// The palette drawer folds to a rail (button or "["); the browser remembers which.
+const PALETTE_KEY = "sim-bench-palette-closed";
+function setPaletteOpen(open) {
+  document.querySelector("main").classList.toggle("palette-closed", !open);
+  const btn = $("btn-palette");
+  btn.title = open ? "Hide the item types ([)" : "Show the item types ([)";
+  btn.firstElementChild.className = `fa-solid ${open ? "fa-angles-left" : "fa-angles-right"}`;
+  localStorage.setItem(PALETTE_KEY, open ? "" : "1");
+}
+setPaletteOpen(!localStorage.getItem(PALETTE_KEY));
+$("btn-palette").onclick = () => setPaletteOpen(document.querySelector("main").classList.contains("palette-closed"));
 wireRunControls({ state, editor, run, results, renderMetrics, showBanner, setStatus });
 
 // --- files -----------------------------------------------------------------------
@@ -924,13 +924,18 @@ async function save() {
 }
 $("btn-save").onclick = save;
 
+// Plain keys that act unless you are typing or on a button: Space plays, "[" folds the palette.
+const KEYS = { " ": () => $("btn-play").click(), "[": () => $("btn-palette").click() };
+const TYPING = ["INPUT", "SELECT", "TEXTAREA", "BUTTON"];
+
 window.addEventListener("keydown", (ev) => {
+  const plain = !ev.metaKey && !ev.ctrlKey && !ev.altKey && !TYPING.includes(ev.target.tagName);
   if ((ev.metaKey || ev.ctrlKey) && ev.key === "s") {
     ev.preventDefault();
     save();
-  } else if (ev.key === " " && !["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(ev.target.tagName)) {
+  } else if (plain && KEYS[ev.key]) {
     ev.preventDefault();
-    $("btn-play").click();
+    KEYS[ev.key]();
   }
 });
 

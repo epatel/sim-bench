@@ -250,6 +250,7 @@ requirements.txt   (.venv, gitignored)
 - 2026-11-25: The repo is public on GitHub (epatel/sim-bench). CI, Audit
   (pip-audit) and OpenSSF Scorecard run there, with actions pinned to SHAs and
   updated by Dependabot.
+- 2026-11-26: Deployed at home.memention.net/sim-bench/ behind nginx. An optional `SIMBENCH_TOKEN` gates `/api` and `/ws` (bearer header, WebSocket subprotocol), frontend URLs are page-relative so any prefix works, and `make deploy` rsyncs and restarts a systemd unit.
 - 2026-11-26: A model can define `globals` (constants and single-expression functions) for its machines. They are data like machine scripts. Functions see only their arguments and the constants, and use the calling entity's random stream.
 - 2026-11-26: State machines are written as scripts (`machine_script.py`) that parse into the existing machine mapping. The runtime and its safety are unchanged, and the mapping form keeps working.
 - 2026-11-25: Use the agent through `claude-agent-sdk` on the subscription login,

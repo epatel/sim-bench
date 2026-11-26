@@ -52,3 +52,13 @@ get_model, list_types, add_entity, update_entity, remove_entity, connect, update
 - Cassettes are scrubbed. Absolute paths become tokens (`{WORKDIR}`, `{SOURCE:name}`, `{HOME}`, plus `_REAL` variants for macOS `/private`), and the account and personal setup keys (`PRIVATE_KEYS`: plugins, commands, memory paths, and so on) and `rate_limit_event` are dropped. Check a new cassette before committing it.
 - A cassette's `meta.libraries` lists the libraries it was recorded with, and replay sandboxes only those. Adding a library therefore doesn't change recorded `list_types` answers. Changing a listed library's types still does.
 - **When a cassette goes stale.** A change to tool behavior, tool schemas, the system prompt's effect on our answers, or the SDK's wire protocol makes a replay report mismatches. Re-record with the prompts in the cassette's `meta`. The model's choices will differ, so check the new conversation still exercises what the old one did. Recording uses the SDK's internal `SubprocessCLITransport`, so check `RecordingTransport.subprocess` after SDK upgrades.
+
+## Chat rendering
+
+- `web/js/markdown.js` renders the agent's replies and proposal notes as Markdown.
+  - It builds DOM nodes and puts text in through `textContent`, so nothing the agent writes becomes HTML. Never switch it to `innerHTML`.
+  - Links are allowed only for `http(s):` and `mailto:` and open in a new tab. Anything else stays plain text.
+  - Supported: headings (shrunk to chat size), paragraphs (a single newline is a line break), nested and ordered lists, fenced code, block quotes, GFM tables, rules, and inline code, bold, italic, strike-through and links.
+- ```` ```mermaid ```` fences become diagrams through `renderDiagrams`.
+  - It loads `web/vendor/mermaid/mermaid.min.js` lazily on the first diagram, with `securityLevel: "strict"` and the dark theme.
+  - If the bundle is missing, or a diagram fails to parse, the source stays visible as code with a short note.

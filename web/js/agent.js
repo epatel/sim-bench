@@ -1,6 +1,9 @@
 // The agent chat: talks to /ws/agent; the agent edits the model through tools and
 // the server pushes each new model back here, so the canvas updates as it works.
 
+import { authFetch, openSocket } from "./auth.js";
+import { renderDiagrams, renderMarkdown } from "./markdown.js";
+
 const SUGGESTIONS = [
   "Explain this model and what limits its throughput.",
   "Put a cache in front of the database and compare latency over 5 seeds.",
@@ -16,27 +19,6 @@ function h(tag, attrs = {}, text) {
 
 function icon(name) {
   return h("i", { class: `fa-solid ${name}` });
-}
-
-// Minimal, safe markdown: escape first, then code, bold and bullet lists.
-function renderMarkdown(text) {
-  const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const blocks = esc.split(/```[a-z]*\n?/);
-  return blocks
-    .map((b, i) => (i % 2 ? `<pre>${b}</pre>` : inline(b)))
-    .join("");
-}
-
-function inline(text) {
-  const lines = text.split("\n").map((line) => {
-    const item = line.match(/^\s*[-*] (.*)/);
-    const body = (item ? item[1] : line)
-      .replace(/`([^`]+)`/g, "<code>$1</code>")
-      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/^#{1,4} (.*)/, "<strong>$1</strong>");
-    return item ? `<li>${body}</li>` : `${body}<br>`;
-  });
-  return lines.join("").replace(/(<li>.*?<\/li>)+/g, (m) => `<ul>${m}</ul>`);
 }
 
 export class AgentChat {
@@ -87,7 +69,7 @@ export class AgentChat {
 
   async loadStatus() {
     try {
-      const s = await (await fetch("/api/agent/status")).json();
+      const s = await (await authFetch("api/agent/status")).json();
       this.statusLine.textContent = `model: ${s.model}`;
       this.statusLine.title = `Claude Agent SDK ${s.sdk} · ${s.tools.length} workbench tools`;
     } catch {
@@ -98,7 +80,7 @@ export class AgentChat {
   // --- sources: other projects the agent may read ----------------------------------
 
   async loadSources() {
-    const list = await (await fetch("/api/sources")).json();
+    const list = await (await authFetch("api/sources")).json();
     this.sourcesBtn.innerHTML = "";
     this.sourcesBtn.append(icon("fa-folder-tree"), ` ${list.length}`);
     this.sourcesPanel.innerHTML = "";
@@ -108,7 +90,7 @@ export class AgentChat {
       const del = h("button", { title: `Stop sharing ${s.name}` });
       del.append(icon("fa-xmark"));
       del.onclick = async () => {
-        await fetch(`/api/sources/${encodeURIComponent(s.name)}`, { method: "DELETE" });
+        await authFetch(`api/sources/${encodeURIComponent(s.name)}`, { method: "DELETE" });
         this.loadSources();
       };
       row.append(h("b", {}, s.name), h("span", {}, s.path), del);
@@ -128,7 +110,7 @@ export class AgentChat {
   }
 
   async addSource(name, path) {
-    const res = await fetch("/api/sources", {
+    const res = await authFetch("api/sources", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, path }),
@@ -141,8 +123,7 @@ export class AgentChat {
   }
 
   connect() {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    this.ws = new WebSocket(`${proto}://${location.host}/ws/agent`);
+    this.ws = openSocket("ws/agent");
     this.ws.onmessage = (ev) => this.onEvent(JSON.parse(ev.data));
     this.ws.onclose = () => {
       this.setBusy(false);
@@ -210,8 +191,9 @@ export class AgentChat {
     const handler = {
       text: () => {
         const div = h("div", { class: "ag-msg ag-bot" });
-        div.innerHTML = renderMarkdown(e.text);
+        div.append(renderMarkdown(e.text));
         this.add(div);
+        renderDiagrams(div);
       },
       tool: () => this.toolCall(e),
       tool_result: () => this.toolResult(e),
@@ -237,8 +219,9 @@ export class AgentChat {
     for (const t of p.types) card.append(h("div", { class: "ag-type" }, `${t.library}/${t.name} extends ${t.extends}`));
     if (p.notes) {
       const notes = h("div", { class: "ag-msg ag-bot" });
-      notes.innerHTML = renderMarkdown(p.notes);
+      notes.append(renderMarkdown(p.notes));
       card.append(notes);
+      renderDiagrams(notes);
     }
     const actions = h("div", { class: "row-actions" });
     const accept = h("button", { class: "primary" });

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sim-bench</title>
+  <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css">
+  <style>
+    :root { --bg: #0e1116; --panel: #151a21; --line: #262d38; --text: #d7dde6; --muted: #8591a3;
+            --accent: #f5b13d; --select: #4cc2ff; --bad: #ff6b6b; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+                 font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+    body { display: grid; place-items: center; }
+    main { width: min(360px, 90vw); padding: 28px; background: var(--panel);
+           border: 1px solid var(--line); border-radius: 10px; }
+    h1 { margin: 0 0 4px; font-size: 18px; } h1 i { color: var(--accent); margin-right: 6px; }
+    p { margin: 0 0 18px; color: var(--muted); }
+    form { display: flex; gap: 8px; }
+    input, button { font: inherit; color: var(--text); background: #1b212a; border: 1px solid var(--line);
+                    border-radius: 6px; padding: 7px 10px; }
+    input { flex: 1; min-width: 0; } input:focus { outline: 1px solid var(--select); }
+    button { cursor: pointer; color: var(--accent); background: #2a2312; border-color: #5a4518; }
+    #msg { min-height: 1.5em; margin: 10px 0 0; color: var(--bad); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1><i class="fa-solid fa-diagram-project"></i>sim-bench</h1>
+    <p>Simulation workbench. Enter your access token to open it.</p>
+    <form id="form" hidden>
+      <input id="token" type="password" placeholder="access token" autocomplete="current-password" autofocus>
+      <button type="submit">Open</button>
+    </form>
+    <p id="msg"></p>
+  </main>
+  <script>
+    // The token lives in localStorage; ?token=... sets it (and is removed from the URL).
+    const KEY = "sim-bench-token";
+    const form = document.getElementById("form");
+    const msg = document.getElementById("msg");
+
+    async function tryOpen(token) {
+      const res = await fetch("api/auth", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        localStorage.setItem(KEY, token);
+        location.replace("index.html");
+        return;
+      }
+      localStorage.removeItem(KEY);
+      msg.textContent = res.status === 401 ? "That token was not accepted." : `Server error (${res.status}).`;
+      form.hidden = false;
+    }
+
+    const url = new URL(location.href);
+    const given = url.searchParams.get("token");
+    if (given !== null) {
+      url.searchParams.delete("token");
+      history.replaceState(null, "", url);
+    }
+    const token = given || localStorage.getItem(KEY);
+    if (token) tryOpen(token).catch((e) => { msg.textContent = e.message; form.hidden = false; });
+    else form.hidden = false;
+
+    form.onsubmit = (ev) => {
+      ev.preventDefault();
+      msg.textContent = "";
+      const value = document.getElementById("token").value.trim();
+      if (value) tryOpen(value);
+    };
+  </script>
+</body>
+</html>

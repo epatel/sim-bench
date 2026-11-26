@@ -77,6 +77,15 @@ The agent is isolated from your own Claude Code setup and from the machine:
 - it can read only the source folders you register in the Agent tab, and a hook keeps it out of
   likely secrets (`.env`, keys, credentials).
 
+## Running on a server
+
+Set `SIMBENCH_TOKEN` (in the environment or in `.env`) and every API and WebSocket
+request needs that token. The root URL becomes a landing page that asks for it, or takes
+it once from `?token=...`, and keeps it in the browser's localStorage. All frontend URLs
+are relative, so the app works behind a reverse proxy under a path prefix.
+`make deploy` copies the tree to a server over ssh and restarts a systemd unit. See
+`deploy/` and [cards/deployment.md](cards/deployment.md).
+
 ## Tests and checks
 
 ```sh

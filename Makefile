@@ -6,9 +6,12 @@ MODEL  ?= projects/examples/web-backend.yaml
 UNTIL  ?= 300
 SEED   ?= 1
 BASE   ?=
+# where `make deploy` copies the working tree (an ssh host and a directory)
+DEPLOY_HOST ?= home
+DEPLOY_DIR  ?= sim-bench
 
 .DEFAULT_GOAL := help
-.PHONY: help setup run serve sim test lint format check health clean
+.PHONY: help setup run serve sim test lint format check health clean deploy
 
 help: ## list the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  make %-8s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -53,3 +56,7 @@ health: ## aihealth delta of uncommitted changes
 clean: ## remove caches (keeps .venv and runs.sqlite3)
 	rm -rf .pytest_cache .ruff_cache
 	find . -name __pycache__ -type d -not -path "./$(VENV)/*" -exec rm -rf {} +
+
+deploy: ## copy the working tree to DEPLOY_HOST and restart the service there
+	rsync -az --delete --exclude-from=deploy/rsync-exclude ./ $(DEPLOY_HOST):$(DEPLOY_DIR)/
+	ssh $(DEPLOY_HOST) 'cd $(DEPLOY_DIR) && deploy/remote-install.sh'

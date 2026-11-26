@@ -1,0 +1,24 @@
+# systemd unit for sim-bench on a server behind nginx (see deploy/nginx-sim-bench.conf).
+# Installed by `make deploy` to /etc/systemd/system/sim-bench.service.
+#   journalctl -u sim-bench -f      # follow logs
+[Unit]
+Description=sim-bench simulation workbench
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Must be the user that ran `claude` login: the agent uses that subscription login
+# (~/.claude). Never put ANTHROPIC_API_KEY here; the server strips it anyway.
+User=epatel
+WorkingDirectory=/home/epatel/sim-bench
+# SIMBENCH_TOKEN is read from .env (chmod 600) in the working directory.
+Environment=PATH=/home/epatel/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/epatel/sim-bench/.venv/bin/python -m server --host 127.0.0.1 --port 8780
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

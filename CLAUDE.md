@@ -8,7 +8,7 @@ A local workbench that runs a discrete-event simulation of entities, messages an
 
 ## Commands
 
-`make` lists shortcuts for these (setup, run, sim, test, lint, format, check, health). The underlying commands:
+`make` lists shortcuts for these (setup, run, sim, test, lint, format, check, health), plus `make deploy` (see the deployment card). The underlying commands:
 
 - Setup: `python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt`
 - Run: `.venv/bin/python -m server --reload` (then open http://127.0.0.1:8765, or pass `--port`)
@@ -31,6 +31,7 @@ Domains
 - [behaviors](cards/behaviors.md) — when writing an entity with custom logic (state machine or Python behavior), or changing the expression language
 - [scenarios](cards/scenarios.md) — when changing scenario patches, batch runs and statistics, the what-if fork, the results store or the results drawer
 - [agent](cards/agent.md) — when changing the in-app agent: its tools, prompt, isolation, authentication or the chat panel
+- [deployment](cards/deployment.md) — when changing the access token, frontend URLs (keep them relative) or `deploy/`
 - [sources](cards/sources.md) — when changing what the agent may read, the read guard, proposals (accept/reject, diff preview) or provenance
 
 Decisions

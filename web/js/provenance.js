@@ -1,4 +1,5 @@
 // Provenance: the code in another project that an entity or type was derived from.
+import { authFetch } from "./auth.js";
 import { el } from "./dom.js";
 
 export function sourceSection(refs) {
@@ -17,7 +18,7 @@ export function sourceSection(refs) {
 
 async function showSnippet(ref, view) {
   view.innerHTML = "";
-  const res = await fetch(`/api/sources/snippet?ref=${encodeURIComponent(ref)}`);
+  const res = await authFetch(`api/sources/snippet?ref=${encodeURIComponent(ref)}`);
   const data = await res.json();
   if (!res.ok) return view.append(el("p", { class: "ag-error" }, data.detail));
   const pre = el("pre", { class: "snippet" });
