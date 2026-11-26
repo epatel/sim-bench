@@ -11,33 +11,42 @@ params:
   hunt: 0.02         # catches per fox per rabbit per time unit
   efficiency: 0.1    # chance that a catch raises a new fox
   death: 0.4         # deaths per fox per time unit
-machine:
-  inputs: [census]
-  outputs: [kill]
-  vars: {foxes: -1, prey: 0, catching: 0, dying: 0}
-  initial: born
-  states:
-    born:
-      enter: [{set: {foxes: start}}, {goto: alive}]
-      on: {census: [{set: {prey: msg.rabbits}}]}
-    alive:
-      enter:
-        - {observe: {foxes: foxes}}
-        - {set: {catching: "hunt * prey * foxes", dying: "death * foxes"}}
-        - if: "foxes <= 0"
-          then: [{goto: extinct}]
-          else:
-            - if: "catching + dying > 0"
-              then: [{after: "sample({'dist': 'exp', 'mean': 1 / (catching + dying)})", event: act}]
-      on:
-        census: [{set: {prey: msg.rabbits}}, {goto: alive}]
-        act:
-          - if: "random() * (catching + dying) < catching"
-            then:
-              - {emit: {port: kill, payload: {}}}
-              - {count: catches}
-              - {if: "random() < efficiency", then: [{set: {foxes: "foxes + 1"}}, {count: births}]}
-            else: [{set: {foxes: "foxes - 1"}}, {count: deaths}]
-          - {goto: alive}
-    extinct:
-      on: {census: [{set: {prey: msg.rabbits}}]}
+machine: |
+  inputs census
+  outputs kill
+  var foxes = -1
+  var prey = 0            # rabbits in the last census
+  var catching = 0        # rates of the next event, drawn on entering alive
+  var dying = 0
+
+  state born:
+    enter:
+      foxes = start
+      goto alive
+    on census: prey = msg.rabbits
+
+  state alive:
+    enter:
+      observe foxes
+      catching, dying = hunt * prey * foxes, death * foxes
+      if foxes <= 0:
+        goto extinct
+      elif catching + dying > 0:
+        after exponential(1 / (catching + dying)) -> act
+    on census:
+      prey = msg.rabbits
+      goto alive          # the rates changed: draw the next event again
+    on act:               # a catch or a death, in proportion to their rates
+      if random() * (catching + dying) < catching:
+        emit kill
+        count catches
+        if random() < efficiency:
+          foxes += 1
+          count births
+      else:
+        foxes -= 1
+        count deaths
+      goto alive
+
+  state extinct:
+    on census: prey = msg.rabbits

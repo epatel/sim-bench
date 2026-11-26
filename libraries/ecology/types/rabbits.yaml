@@ -11,28 +11,37 @@ params:
   birth: 1.0       # births per rabbit per time unit (on an empty meadow)
   capacity: 2000   # the meadow holds at most this many
   report: 0.1      # census interval
-machine:
-  inputs: [eaten]
-  outputs: [census]
-  vars: {rabbits: -1}
-  initial: born
-  on:
-    report:
-      - {emit: {port: census, payload: {rabbits: rabbits}}}
-      - {after: report, event: report, keep: true}
-  states:
-    born:  # first event only: take the starting size from the params
-      enter: [{set: {rabbits: start}}, {after: 0, event: report, keep: true}, {goto: alive}]
-    alive:
-      enter:
-        - {observe: {rabbits: rabbits}}
-        - if: "rabbits <= 0"
-          then: [{goto: extinct}]
-          else: [{after: "sample({'dist': 'exp', 'mean': 1 / (birth * rabbits)})", event: breed}]
-      on:
-        breed:
-          - {if: "random() < 1 - rabbits / capacity", then: [{set: {rabbits: "rabbits + 1"}}, {count: births}]}
-          - {goto: alive}  # leaving the state cancels the old timer; enter draws the next
-        eaten: [{set: {rabbits: "max(rabbits - 1, 0)"}}, {count: eaten}, {goto: alive}]
-    extinct:
-      on: {eaten: [{count: eaten}]}
+machine: |
+  inputs eaten
+  outputs census
+  var rabbits = -1
+
+  on report:              # the census, every `report` time units in any state
+    emit census {rabbits: rabbits}
+    after report -> report keep
+
+  state born:             # take the starting size from the params
+    enter:
+      rabbits = start
+      after 0 -> report keep
+      goto alive
+
+  state alive:
+    enter:
+      observe rabbits
+      if rabbits <= 0:
+        goto extinct
+      else:
+        after exponential(1 / (birth * rabbits)) -> breed
+    on breed:
+      if random() < 1 - rabbits / capacity:
+        rabbits += 1
+        count births
+      goto alive          # leaving the state cancels the old timer; enter draws the next
+    on eaten:
+      rabbits = max(rabbits - 1, 0)
+      count eaten
+      goto alive
+
+  state extinct:
+    on eaten: count eaten

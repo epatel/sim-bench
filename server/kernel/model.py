@@ -174,6 +174,8 @@ class ModelSpec(BaseModel):
     connections: list[ConnectionSpec] = Field(default_factory=list)
     groups: list[GroupSpec] = Field(default_factory=list)
     scenarios: list[ScenarioSpec] = Field(default_factory=list)
+    # constants and functions for every machine's expressions (model_globals.py)
+    globals: str | None = None
 
     def entity(self, entity_id: str) -> EntitySpec:
         for e in self.entities:

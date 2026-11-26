@@ -51,7 +51,7 @@ sequenceDiagram
 
 ## Frontend (`web/`, vanilla ES modules, no build)
 
-- `js/main.js` handles app state, the palette, the inspector (fields generated from `params_schema`, with values typed as JSON), the toolbar, saving and auto-layout.
+- `js/main.js` handles app state, the palette, the inspector, the toolbar, saving and auto-layout. `js/fields.js` builds the inspector's fields from `params_schema` types: string, bool, enum, machine (a script editor), code (a plain script, such as the model's `globals`, shown when nothing is selected), and JSON for the rest.
 - `js/canvas.js` is the `Editor`. It handles pan and zoom, dragging nodes (snapped to 8px), and dragging from an output port to an input port to connect (a new link replaces an existing link from that output). Delete removes the selection. The editor also does the live drawing: amber dots move along the link Bézier curves between `t` and `arrive`, and red flashes mark drops and losses.
 - `js/icons.js` draws Font Awesome glyphs on the canvas by reading the icon's `--fa` CSS variable (Font Awesome 7). The font is vendored in `web/vendor/fontawesome/` (Free 7.3.1). Add an icon by naming it in a behavior's `icon`.
 - Link identity on both sides is `id` or else `"from->to"` (`linkKey` in JS, `ConnectionSpec.key()` in Python). Keep them in sync.

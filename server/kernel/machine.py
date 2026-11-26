@@ -2,7 +2,8 @@
 
 The machine definition is plain data (YAML/JSON), so it is safe to keep in a
 model file, edit in the UI, or have the agent write. Expressions use
-``expr.evaluate`` (no arbitrary code).
+``expr.evaluate`` (no arbitrary code). It can also be written as a script that
+reads like code (``machine_script.py``), which is parsed into this same data.
 
     machine:
       inputs: [in]                 # input ports  (default [in])
@@ -36,9 +37,11 @@ Actions (each a one-key mapping, run in order):
     pop: var                       take the oldest message from a list variable
     release: {from: var, to: port} send every message in a list variable, oldest first
 
-Expression names: variables, then params, plus ``now``, ``state`` and ``msg``
+Expression names: variables, then params, then the model's globals
+(``model_globals.py``: constants and functions), plus ``now``, ``state`` and ``msg``
 (the payload, with ``_age``, ``_hops`` and ``_size`` added). Functions:
-random(), uniform(a, b), sample(dist), len, min, max, abs, round, int, float.
+random(), uniform(a, b), exponential(mean), sample(dist), len, min, max, abs, round,
+int, float.
 
 A message that a handler neither sends, drops, pushes nor holds is absorbed
 (counted as ``absorbed``). A runtime error drops the message, counts ``errors``
@@ -51,6 +54,7 @@ from typing import Any
 
 from .behaviors import Behavior
 from .expr import ExprError, evaluate, parse
+from .machine_script import ScriptError, parse_script
 from .rng import sample
 
 VERBS = (
@@ -64,21 +68,24 @@ class MachineError(ValueError):
     pass
 
 
-DEFAULT_MACHINE = {
-    "inputs": ["in"],
-    "outputs": ["out"],
-    "initial": "idle",
-    "states": {"idle": {"on": {"in": [{"send": "out"}]}}},
-}
+DEFAULT_MACHINE = """\
+inputs in
+outputs out
+
+state idle:
+  on in: send out
+"""
 
 
 # --- validation ------------------------------------------------------------------
 
 
 def check_machine(m: Any) -> dict[str, Any]:
-    """Validate a machine definition; return it with defaults filled in."""
+    """Validate a machine definition (a script or a mapping); return it as a mapping
+    with defaults filled in."""
+    m = _as_mapping(m)
     if not isinstance(m, dict):
-        raise MachineError("machine must be a mapping")
+        raise MachineError("machine must be a script or a mapping")
     m = {"inputs": ["in"], "outputs": ["out"], "vars": {}, "on": {}, **_yaml_on(m)}
     states = m.get("states")
     if not isinstance(states, dict) or not states:
@@ -94,6 +101,15 @@ def check_machine(m: Any) -> dict[str, Any]:
         checker.actions(f"{name}.exit", st.get("exit", []))
         checker.handlers(f"{name}.on", st.get("on", {}))
     return m
+
+
+def _as_mapping(m: Any) -> Any:
+    if not isinstance(m, str):
+        return m
+    try:
+        return parse_script(m)
+    except ScriptError as e:
+        raise MachineError(str(e)) from e
 
 
 def _yaml_on(d: dict) -> dict:
@@ -201,9 +217,9 @@ class Machine(Behavior):
     icon = "fa-gears"
     params_schema = {
         "machine": {
-            "type": "object",
+            "type": "machine",
             "default": DEFAULT_MACHINE,
-            "help": "states, handlers and actions (see the machines card)",
+            "help": "states, handlers and actions: a script, or the same as a mapping",
         },
     }
 
@@ -293,7 +309,8 @@ class _Run:
 
     def env(self) -> dict[str, Any]:
         params = {k: v for k, v in self.ctx.params.items() if k != "machine"}
-        env = {**params, **self.mc.vars, "now": self.ctx.now, "state": self.mc.state}
+        env = {**self.ctx.globals.consts, **params, **self.mc.vars, "now": self.ctx.now,
+               "state": self.mc.state}  # fmt: skip
         if self.msg is not None:
             m = self.msg
             env["msg"] = {**m.payload, "_age": self.ctx.now - m.created_at, "_hops": m.hops,
@@ -304,10 +321,11 @@ class _Run:
         rng = self.ctx.rng
         funcs = {
             "random": rng.random, "uniform": rng.uniform, "sample": lambda d: sample(d, rng),
+            "exponential": lambda mean: rng.expovariate(1.0 / mean),
             "len": len, "min": min, "max": max, "abs": abs, "round": round,
             "int": int, "float": float,
         }  # fmt: skip
-        return evaluate(e, self.env(), funcs)
+        return evaluate(e, self.env(), self.ctx.globals.bind(funcs))
 
     # actions -------------------------------------------------------------------
 

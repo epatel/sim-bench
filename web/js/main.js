@@ -8,6 +8,7 @@ import { adoptPositions, buildPreview, normalize, positionsOf } from "./proposal
 import { sourceSection } from "./provenance.js";
 import { Results } from "./results.js";
 import { wireRunControls } from "./runbar.js";
+import { paramFields } from "./fields.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -181,6 +182,9 @@ const run = new RunClient();
 // --- model edits and validation --------------------------------------------------
 
 let validateTimer = null;
+
+// Inspector field editors; an edit reports back through changedModel.
+const paramField = paramFields((opts) => changedModel(opts));
 
 function changedModel(opts) {
   changed(opts);
@@ -647,6 +651,10 @@ function inspectModel(root) {
     el("p", { class: "sub" },
       `${state.model.entities.length} entities · ${state.model.connections.length} connections`),
   );
+  root.append(paramField(state.model, "globals", {
+    type: "code", default: "", help: "constants and functions for every machine",
+    placeholder: "meadow = 2000\n\ndef logistic(n, cap):\n  return n * (1 - n / cap)",
+  }));
   root.append(el("h2", {}, "Run summary"));
   root.append(el("div", { id: "metrics" }));
   renderMetrics();
@@ -791,119 +799,6 @@ function textField(label, value, onChange, { silent = false } = {}) {
   });
   f.append(input);
   return f;
-}
-
-// Fields whose edits change what the inspector shows (ports, scenario list): redraw it.
-const PORT_PARAMS = new Set(["routes", "machine", "error_port", "scenarios"]);
-
-// Edit obj[name] according to its schema entry. One builder per field type;
-// anything without its own builder is edited as JSON.
-function paramField(obj, name, meta, { silent = false } = {}) {
-  const field = {
-    obj, name, meta,
-    has: Object.prototype.hasOwnProperty.call(obj, name),
-    done: silent ? () => {} : () => changedModel({ structural: PORT_PARAMS.has(name) }),
-  };
-  return (FIELDS[meta.type] || jsonField)(field);
-}
-
-const FIELDS = { string: stringField, bool: boolField, enum: enumField };
-
-function fieldLabel(name, help) {
-  const label = el("label");
-  label.append(el("span", {}, name), el("span", { class: "help" }, help || ""));
-  return label;
-}
-
-function stringField({ obj, name, meta, has, done }) {
-  const f = el("div", { class: "field" });
-  const input = el("input", { spellcheck: "false", placeholder: meta.default ?? "" });
-  input.value = has ? obj[name] : "";
-  input.addEventListener("change", () => {
-    if (input.value.trim()) obj[name] = input.value.trim();
-    else delete obj[name];
-    done();
-  });
-  f.append(fieldLabel(name, meta.help), input);
-  return f;
-}
-
-function boolField({ obj, name, meta, has, done }) {
-  const f = el("div", { class: "field check" });
-  const label = el("label");
-  const box = el("input", { type: "checkbox" });
-  box.checked = has ? !!obj[name] : !!meta.default;
-  box.addEventListener("change", () => {
-    if (box.checked === meta.default) delete obj[name];
-    else obj[name] = box.checked;
-    done();
-  });
-  label.append(box, `${name}`, el("span", { class: "help" }, meta.help || ""));
-  f.append(label);
-  return f;
-}
-
-function enumField({ obj, name, meta, has, done }) {
-  const f = el("div", { class: "field" });
-  const s = el("select");
-  for (const o of meta.options) s.append(el("option", { value: o }, o));
-  s.value = has ? obj[name] : meta.default;
-  s.addEventListener("change", () => {
-    obj[name] = s.value;
-    done();
-  });
-  f.append(fieldLabel(name, meta.help), s);
-  return f;
-}
-
-const DIST_HINT = 'A number, or e.g. {"dist":"exp","mean":1}, {"dist":"uniform","low":0,"high":2}';
-
-// Numbers, distributions and objects, typed as JSON. Objects (e.g. a state machine)
-// get a multi-line editor that starts from the default.
-function jsonField(field) {
-  const f = el("div", { class: "field" });
-  const input = jsonInput(field);
-  input.addEventListener("change", () => applyJson(field, input));
-  f.append(fieldLabel(field.name, field.meta.help), input);
-  return f;
-}
-
-function jsonInput({ obj, name, meta, has }) {
-  if (meta.type === "object") {
-    const area = el("textarea", { spellcheck: "false" });
-    area.value = JSON.stringify(has && obj[name] !== null ? obj[name] : meta.default, null, 2) ?? "";
-    area.rows = Math.min(18, area.value.split("\n").length + 1);
-    return area;
-  }
-  const input = el("input", { spellcheck: "false" });
-  input.placeholder = meta.default === null ? "empty" : JSON.stringify(meta.default);
-  if (meta.type === "dist") input.title = DIST_HINT;
-  input.value = has && obj[name] !== null ? JSON.stringify(obj[name]) : "";
-  return input;
-}
-
-function applyJson({ obj, name, meta, done }, input) {
-  const text = input.value.trim();
-  const parsed = text === "" ? { empty: true } : parseTyped(text, meta.type);
-  input.classList.toggle("invalid", Boolean(parsed.error));
-  if (parsed.error) return;
-  if (parsed.empty) delete obj[name];
-  else obj[name] = parsed.value;
-  done();
-}
-
-// JSON text -> {value} or {error}, checking numbers for int/float fields.
-function parseTyped(text, type) {
-  let value;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    return { error: "not JSON" };
-  }
-  const numeric = type === "int" || type === "float";
-  if (numeric && typeof value !== "number") return { error: "not a number" };
-  if (type === "int" && !Number.isInteger(value)) return { error: "not an integer" };
-  return { value };
 }
 
 // The slice of a run summary that belongs to the current selection.

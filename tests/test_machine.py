@@ -323,8 +323,8 @@ def test_model_and_library_yaml_keep_on_as_a_key():
     from server.kernel.yamlio import load_yaml
 
     assert load_yaml("on: 1\nyes: no\nt: true") == {"on": 1, "yes": "no", "t": True}
-    cb = LIB.resolve("web/circuit-breaker").defaults["machine"]
-    assert "on" in cb and True not in cb
+    m = load_yaml("initial: a\non: {y: []}\nstates: {a: {on: {x: []}}}")  # a machine mapping
+    assert "on" in m and True not in m and "on" in m["states"]["a"]
 
 
 def test_fork_survives_a_reloaded_behavior_file(tmp_path):

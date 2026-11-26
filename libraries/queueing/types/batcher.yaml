@@ -5,22 +5,24 @@ icon: fa-boxes-stacked
 params:
   size: 10        # release when this many are waiting
   timeout: 2.0    # ...or this long after the first one arrived
-machine:
-  vars: {batch: []}
-  initial: empty
-  states:
-    empty:
-      on:
-        in: [{push: batch}, {goto: filling}]
-    filling:
-      enter: [{after: timeout, event: flush}]
-      on:
-        in:
-          - {push: batch}
-          - {if: "len(batch) >= size", then: [{goto: releasing}]}
-        flush: [{goto: releasing}]
-    releasing:
-      enter:
-        - {observe: {batch_size: "len(batch)"}}
-        - {release: {from: batch, to: out}}
-        - {goto: empty}
+machine: |
+  var batch = []
+
+  state empty:
+    on in:
+      push batch
+      goto filling
+
+  state filling:
+    enter: after timeout -> flush
+    on in:
+      push batch
+      if len(batch) >= size:
+        goto releasing
+    on flush: goto releasing
+
+  state releasing:
+    enter:
+      observe batch_size = len(batch)
+      release batch -> out
+      goto empty

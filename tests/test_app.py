@@ -61,6 +61,8 @@ def test_validate_reports_ports_or_error(client):
     assert ok["ok"] and ok["ports"]["gen"] == {"inputs": [], "outputs": ["out"]}
     bad = client.post("/api/validate", json={"entities": [{"id": "a", "type": "zzz"}]}).json()
     assert not bad["ok"] and "unknown type" in bad["error"]
+    bad = client.post("/api/validate", json={**MODEL, "globals": "x = 1\ny ="}).json()
+    assert not bad["ok"] and bad["error"].startswith("globals: line 2")
 
 
 def test_websocket_load_step_and_reset(client):
@@ -253,7 +255,8 @@ def test_types_expose_machine_and_python_behavior_params(client):
     cb = types["web/circuit-breaker"]
     assert cb["base"] == "machine" and cb["inputs"] == ["in", "failure"]
     assert cb["params"]["threshold"] == {"type": "int", "default": 5}
-    assert cb["params"]["machine"]["type"] == "object"
+    assert cb["params"]["machine"]["type"] == "machine"
+    assert cb["params"]["machine"]["default"].startswith("inputs in, failure")  # a script
     tb = types["web/token-bucket"]
     assert tb["library"] == "web" and tb["outputs"] == ["out", "rejected"]
     assert tb["params"]["rate"]["default"] == 10.0

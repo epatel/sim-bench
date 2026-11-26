@@ -18,8 +18,10 @@ from typing import Any
 from .behaviors import Behavior
 from .composite import CompositeError, GroupProbe, flatten
 from .library import Library, LibraryError
+from .machine_script import ScriptError
 from .metrics import Counter, Gauge, Samples
 from .model import ConnectionSpec, EntitySpec, ModelSpec, PatchSpec
+from .model_globals import EMPTY, Globals, parse_globals
 from .rng import RngPool, sample
 
 Listener = Callable[[dict[str, Any]], None]
@@ -91,6 +93,11 @@ class Context:
     @property
     def now(self) -> float:
         return self._sim.now
+
+    @property
+    def globals(self) -> Globals:
+        """The model's constants and functions."""
+        return self._sim.globals
 
     def message(self, payload: dict[str, Any] | None = None, size: float = 1.0) -> Message:
         return self._sim.new_message(self.entity_id, payload or {}, size)
@@ -178,6 +185,10 @@ class Simulation:
         self._listeners: list[Listener] = []
         self._started = False
         self.library = library or Library(behaviors)
+        try:
+            self.globals = parse_globals(model.globals) if model.globals else EMPTY
+        except ScriptError as e:
+            raise ModelError(f"globals: {e}") from e
 
         self.entities: dict[str, Behavior] = {}
         self.ports: dict[str, tuple[list[str], list[str]]] = {}
